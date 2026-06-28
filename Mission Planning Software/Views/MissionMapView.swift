@@ -24,6 +24,9 @@ struct MissionMapView: View {
     /// Whether the mission menu sheet is presented.
     @State private var showingMenu = false
 
+    /// Whether the waypoint list editor sheet is presented.
+    @State private var showingList = false
+
     /// True bearing from the user to the active (next) waypoint, in degrees from
     /// north. Always anchored at the user's position regardless of which route
     /// segment is currently highlighted.
@@ -62,44 +65,82 @@ struct MissionMapView: View {
     private var isEditing: Bool { mission.mode == .edit }
 
     var body: some View {
-        Map(position: $camera) {
-            mapContent
-        }
-        .mapStyle(.standard(elevation: .realistic, pointsOfInterest: .excludingAll))
-        .mapControls {
-            MapUserLocationButton()
-            MapCompass()
-            MapScaleView()
-        }
-        .onMapCameraChange(frequency: .continuous) { context in
-            mapCenter = context.region.center
-        }
-        // Edit Mode reticle, pinned to the screen center.
-        .overlay {
-            if isEditing { CrosshairView() }
-        }
-        .overlay(alignment: .top) { topBanner }
-        .overlay(alignment: .bottom) { bottomBar }
-        .ignoresSafeArea(edges: .bottom)
-        .onAppear { location.start() }
-        .onChange(of: mission.mode) { _, newMode in
-            // Re-center and follow the user again when returning to navigation.
-            if newMode == .navigation {
-                withAnimation { camera = .userLocation(fallback: .automatic) }
+        // MapReader gives us screen <-> coordinate conversion for the radius handle.
+        MapReader { proxy in
+            Map(position: $camera) {
+                mapContent
+                radiusContent(proxy)
             }
-        }
-        .sheet(isPresented: $showingMenu) {
-            MissionMenuView()
+            .mapStyle(.standard(elevation: .realistic, pointsOfInterest: .excludingAll))
+            .mapControls {
+                MapUserLocationButton()
+                MapCompass()
+                MapScaleView()
+            }
+            .onMapCameraChange(frequency: .continuous) { context in
+                mapCenter = context.region.center
+            }
+            // Edit Mode reticle, pinned to the screen center.
+            .overlay {
+                if isEditing { CrosshairView() }
+            }
+            .overlay(alignment: .top) { topBanner }
+            .overlay(alignment: .bottom) { bottomBar }
+            .ignoresSafeArea(edges: .bottom)
+            .onAppear { location.start() }
+            .onChange(of: location.updateCount) { _, _ in
+                if let user = location.userLocation {
+                    mission.evaluateArrival(at: user)
+                }
+            }
+            .onChange(of: mission.mode) { _, newMode in
+                // Re-center and follow the user again when returning to navigation.
+                if newMode == .navigation {
+                    withAnimation { camera = .userLocation(fallback: .automatic) }
+                }
+            }
+            .sheet(isPresented: $showingMenu) {
+                MissionMenuView()
+            }
+            .sheet(isPresented: $showingList) {
+                WaypointListView(onLocate: locate(_:))
+            }
         }
     }
 
-    /// Navigation Mode shows telemetry; Edit Mode shows the authoring controls.
+    /// Navigation Mode shows telemetry; Edit Mode shows the authoring controls,
+    /// with a selected-waypoint action bar stacked above when applicable.
     @ViewBuilder
     private var bottomBar: some View {
         if isEditing {
-            EditModeBar(onDrop: { mission.addWaypoint(at: mapCenter) })
+            VStack(spacing: 8) {
+                if let selected = mission.selectedWaypoint,
+                   let index = mission.index(of: selected.id) {
+                    SelectedWaypointBar(
+                        index: index,
+                        waypoint: selected,
+                        onEdit: { showingList = true }
+                    )
+                }
+                EditModeBar(
+                    onDrop: { mission.addWaypoint(at: mapCenter) },
+                    onOpenList: { showingList = true }
+                )
+            }
         } else {
             TelemetryHUDView(onOpenMenu: { showingMenu = true })
+        }
+    }
+
+    /// Recenter the camera on a waypoint (used by the list's "Show on map").
+    private func locate(_ waypoint: Waypoint) {
+        mission.select(waypoint.id)
+        withAnimation {
+            camera = .region(MKCoordinateRegion(
+                center: waypoint.coordinate,
+                latitudinalMeters: 400,
+                longitudinalMeters: 400
+            ))
         }
     }
 
@@ -133,14 +174,26 @@ struct MissionMapView: View {
                 .stroke(.green, style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round))
         }
 
-        // Waypoint markers (active one highlighted).
+        // Waypoint markers (active one highlighted; tap to select in Edit Mode).
         ForEach(Array(mission.waypoints.enumerated()), id: \.element.id) { index, waypoint in
             Annotation("", coordinate: waypoint.coordinate, anchor: .center) {
                 WaypointMarkerView(
                     index: index,
-                    isActive: index == mission.currentActiveWaypointIndex
+                    isActive: index == mission.currentActiveWaypointIndex,
+                    isSelected: isEditing && mission.selectedWaypointID == waypoint.id
                 )
+                .onTapGesture {
+                    if isEditing { mission.select(waypoint.id) }
+                }
             }
+        }
+
+        // Active waypoint's activation radius — a subtle trigger ring shown in
+        // Navigation Mode so the auto-advance zone is visible.
+        if !isEditing, let active = mission.activeWaypoint {
+            MapCircle(center: active.coordinate, radius: active.activationRadius)
+                .foregroundStyle(.green.opacity(0.08))
+                .stroke(.green.opacity(0.6), style: StrokeStyle(lineWidth: 1.5, dash: [4, 4]))
         }
 
         // Targeting arrow pinned at the user's current location (navigation only).
@@ -149,6 +202,59 @@ struct MissionMapView: View {
                 TargetingArrowView(bearing: bearingToActive)
             }
         }
+    }
+
+    // MARK: - Radius editing (Edit Mode)
+
+    /// The selected waypoint's activation-radius circle plus a draggable handle
+    /// on its circumference. Only present in Edit Mode with a selection.
+    @MapContentBuilder
+    private func radiusContent(_ proxy: MapProxy) -> some MapContent {
+        if isEditing,
+           let selected = mission.selectedWaypoint {
+            MapCircle(center: selected.coordinate, radius: selected.activationRadius)
+                .foregroundStyle(.yellow.opacity(0.12))
+                .stroke(.yellow, style: StrokeStyle(lineWidth: 2))
+
+            // Handle placed due east of the center, on the circle.
+            let handle = selected.coordinate.coordinate(
+                bearingDegrees: 90,
+                distanceMeters: selected.activationRadius
+            )
+            Annotation("", coordinate: handle, anchor: .center) {
+                radiusHandle(for: selected, proxy: proxy)
+            }
+        }
+    }
+
+    private func radiusHandle(for waypoint: Waypoint, proxy: MapProxy) -> some View {
+        ZStack {
+            // Live meters label floating above the handle.
+            Text("\(Int(waypoint.activationRadius.rounded())) m")
+                .font(.caption2.bold().monospacedDigit())
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(.yellow, in: Capsule())
+                .foregroundStyle(.black)
+                .fixedSize()
+                .offset(y: -26)
+
+            Circle()
+                .fill(.yellow)
+                .overlay(Circle().stroke(.black, lineWidth: 1.5))
+                .frame(width: 20, height: 20)
+        }
+        .frame(width: 48, height: 48)
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                .onChanged { value in
+                    if let dragged = proxy.convert(value.location, from: .global) {
+                        let meters = waypoint.coordinate.distance(to: dragged)
+                        mission.setRadius(id: waypoint.id, meters: meters)
+                    }
+                }
+        )
     }
 
     // MARK: - Top banner

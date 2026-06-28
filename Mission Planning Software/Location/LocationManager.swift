@@ -15,6 +15,9 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
     var userLocation: CLLocationCoordinate2D?
     /// Full location object, kept for speed / course / accuracy telemetry.
     var currentLocation: CLLocation?
+    /// Increments on every fix — an Equatable signal views can observe to react
+    /// to new locations (CLLocationCoordinate2D isn't Equatable).
+    private(set) var updateCount = 0
     var authorizationStatus: CLAuthorizationStatus
 
     @ObservationIgnored private let manager = CLLocationManager()
@@ -50,6 +53,7 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
         MainActor.assumeIsolated {
             self.currentLocation = location
             self.userLocation = location.coordinate
+            self.updateCount &+= 1
         }
     }
 

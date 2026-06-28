@@ -12,9 +12,11 @@ struct EditModeBar: View {
     @Environment(MissionManager.self) private var mission
     /// Invoked when the user taps "Drop Waypoint" — drops at the map center.
     let onDrop: () -> Void
+    /// Invoked when the user taps "List" — opens the waypoint list editor.
+    let onOpenList: () -> Void
 
     var body: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 12) {
             Button {
                 mission.exitEditMode()
             } label: {
@@ -26,8 +28,17 @@ struct EditModeBar: View {
             .buttonStyle(.bordered)
             .tint(.white)
 
+            Button(action: onOpenList) {
+                Label("List", systemImage: "list.bullet")
+                    .font(.system(.subheadline, design: .rounded).bold())
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+            }
+            .buttonStyle(.bordered)
+            .tint(.white)
+
             Button(action: onDrop) {
-                Label("Drop Waypoint", systemImage: "mappin.and.ellipse")
+                Label("Drop", systemImage: "mappin.and.ellipse")
                     .font(.system(.subheadline, design: .rounded).bold())
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)

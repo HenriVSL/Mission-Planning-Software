@@ -32,6 +32,25 @@ extension CLLocationCoordinate2D {
         let b = CLLocation(latitude: destination.latitude, longitude: destination.longitude)
         return a.distance(from: b)
     }
+
+    /// The coordinate reached by travelling `distanceMeters` from `self` along
+    /// `bearingDegrees` (clockwise from true north). Used to place handles on a
+    /// circle of a given radius around a center point.
+    func coordinate(bearingDegrees: Double, distanceMeters: CLLocationDistance) -> CLLocationCoordinate2D {
+        let earthRadius = 6_371_000.0
+        let angularDistance = distanceMeters / earthRadius
+        let bearing = (bearingDegrees * .pi / 180)
+        let lat1 = latitude * .pi / 180
+        let lon1 = longitude * .pi / 180
+
+        let lat2 = asin(sin(lat1) * cos(angularDistance)
+                        + cos(lat1) * sin(angularDistance) * cos(bearing))
+        let lon2 = lon1 + atan2(sin(bearing) * sin(angularDistance) * cos(lat1),
+                                cos(angularDistance) - sin(lat1) * sin(lat2))
+
+        return CLLocationCoordinate2D(latitude: lat2 * 180 / .pi,
+                                      longitude: lon2 * 180 / .pi)
+    }
 }
 
 private extension Double {

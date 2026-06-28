@@ -101,11 +101,22 @@ File layout (under `Mission Planning Software/`):
 * **Menu entry point:** tapping the central readout of the telemetry HUD opens `MissionMenuView` (a sheet). For now it shows active-target info (name, distance, coordinate, radius) and an **Edit Mission** button; this is the home for future per-waypoint info / mission actions.
 * **Edit Mode UI:** a fixed center `CrosshairView`, the bottom bar swaps to `EditModeBar` (Drop Waypoint / Done), the top banner shows an EDIT MODE indicator, and the targeting arrow is hidden. `onMapCameraChange(.continuous)` tracks the screen-center coordinate (`mapCenter`); **Drop Waypoint** appends a waypoint there. Returning to Navigation Mode re-centers/follows the user.
 
+### Phase 2B — ✅ Waypoint selection, list editor & deletion
+
+* **On-map selection (Edit Mode):** tapping a waypoint marker selects it (`onTapGesture` → `mission.select`); selected marker shows a yellow halo (`WaypointMarkerView.isSelected`).
+* **Selected-waypoint action bar** (`SelectedWaypointBar`): stacked above `EditModeBar` when something is selected — edit details, **delete** (trash), or deselect.
+* **Waypoint list editor** (`WaypointListView`, opened via the new **List** button in `EditModeBar`): `List` of `DisclosureGroup` rows; expand to edit **Name / Latitude / Longitude / Radius** (live two-way bindings via `@Bindable`); **swipe-to-delete** + `EditButton`; **Show on map** recenters the camera (`MissionMapView.locate`). Opening the list auto-scrolls to / expands the selected waypoint.
+* **Model:** `MissionManager` gained `selectedWaypoint`, `index(of:)`, `select`/`deselect`, `deleteSelectedWaypoint`, `deleteWaypoints(atOffsets:)`. (Model stays SwiftUI-free — offset deletion done manually, not via SwiftUI's `remove(atOffsets:)`.)
+
+### Phase 2C — ✅ Activation radius (behavior + editing)
+
+* **Auto-advance behavior:** `MissionManager.evaluateArrival(at:)` advances the active waypoint whenever the user is within the active waypoint's `activationRadius` (loops so multiple close waypoints clear in one fix; only ever moves forward; final waypoint stays active). Driven by `LocationManager.updateCount` (an Equatable signal incremented per GPS fix; `CLLocationCoordinate2D` isn't Equatable) via `onChange` in `MissionMapView`, gated to Navigation Mode. Toggle: `MissionManager.autoAdvanceEnabled` (no UI yet). *Known nuance: manual Prev can be immediately re-advanced if still inside the radius.*
+* **Radius visualization:** Navigation Mode draws a subtle green dashed trigger ring around the **active** waypoint (`MapCircle`); Edit Mode draws a solid yellow editable circle around the **selected** waypoint.
+* **Draggable handle:** placed due-east on the circle via `CLLocationCoordinate2D.coordinate(bearingDegrees:distanceMeters:)`. Dragging converts the touch to a coordinate through `MapReader`/`MapProxy.convert(_:from: .global)`, sets radius = distance(center, touch) via `setRadius` (clamped 2–3000 m), with a live meters label on the handle and in `SelectedWaypointBar`.
+
 ### Phase 2 remaining (planned)
 
-* **2B — Waypoint List editor:** sheet `List`, expand row → edit Name/Lat/Lon/Radius, swipe-to-delete, tap-to-select & center.
-* **2C — Radius visualization + draggable handle:** `MapCircle` for the selected waypoint + drag-to-resize with live meters label.
-* **2D — On-map gestures (move/delete):** long-press-drag move, double-tap delete — highest MapKit risk; approach may be adapted.
+* **2D — On-map gestures (move):** long-press-drag to move a waypoint — highest MapKit risk; approach may be adapted. (Delete is already covered by 2B.)
 
 Build notes:
 * Project uses a **synchronized root group** — new Swift files dropped into the folder are auto-added to the target (no `.pbxproj` edits needed for sources).

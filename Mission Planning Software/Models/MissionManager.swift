@@ -6,6 +6,7 @@
 //
 
 import CoreLocation
+import Foundation
 import Observation
 
 /// Top-level interaction mode for the map.
@@ -45,6 +46,10 @@ final class MissionManager {
     var canAdvance: Bool { currentActiveWaypointIndex < waypoints.count - 1 }
     var canRetreat: Bool { currentActiveWaypointIndex > 0 }
 
+    /// When true, the active waypoint auto-advances once the user enters its
+    /// activation radius. Manual Prev/Next overrides still work.
+    var autoAdvanceEnabled = true
+
     /// Manual override: advance to the next waypoint in the route.
     func advance() {
         guard canAdvance else { return }
@@ -55,6 +60,19 @@ final class MissionManager {
     func retreat() {
         guard canRetreat else { return }
         currentActiveWaypointIndex -= 1
+    }
+
+    // MARK: - Auto-advance (activation radius)
+
+    /// Advance the active target while the user is inside the active waypoint's
+    /// activation radius. Called on each new GPS fix in Navigation Mode. Only
+    /// ever moves forward; the final waypoint stays active on arrival.
+    func evaluateArrival(at userCoordinate: CLLocationCoordinate2D) {
+        guard autoAdvanceEnabled, mode == .navigation else { return }
+        while canAdvance, let active = activeWaypoint,
+              userCoordinate.distance(to: active.coordinate) <= active.activationRadius {
+            advance()
+        }
     }
 
     // MARK: - Mode
@@ -82,6 +100,45 @@ final class MissionManager {
         waypoints.remove(at: index)
         if selectedWaypointID == id { selectedWaypointID = nil }
         clampActiveIndex()
+    }
+
+    /// Remove waypoints at the given list offsets (swipe-to-delete / EditButton).
+    func deleteWaypoints(atOffsets offsets: IndexSet) {
+        for index in offsets.sorted(by: >) where waypoints.indices.contains(index) {
+            waypoints.remove(at: index)
+        }
+        if let id = selectedWaypointID, !waypoints.contains(where: { $0.id == id }) {
+            selectedWaypointID = nil
+        }
+        clampActiveIndex()
+    }
+
+    /// Delete the currently selected waypoint, if any.
+    func deleteSelectedWaypoint() {
+        guard let id = selectedWaypointID else { return }
+        deleteWaypoint(id: id)
+    }
+
+    // MARK: - Selection
+
+    var selectedWaypoint: Waypoint? {
+        guard let id = selectedWaypointID else { return nil }
+        return waypoints.first { $0.id == id }
+    }
+
+    /// Position of a waypoint in the route (used for index badges / labels).
+    func index(of id: Waypoint.ID) -> Int? {
+        waypoints.firstIndex { $0.id == id }
+    }
+
+    func select(_ id: Waypoint.ID) { selectedWaypointID = id }
+    func deselect() { selectedWaypointID = nil }
+
+    /// Update a waypoint's activation radius (clamped to a sane range), used by
+    /// the on-map drag handle and the list editor.
+    func setRadius(id: Waypoint.ID, meters: Double) {
+        guard let index = waypoints.firstIndex(where: { $0.id == id }) else { return }
+        waypoints[index].activationRadius = min(max(meters, 2), 3000)
     }
 
     /// Clamp `currentActiveWaypointIndex` into the valid range after edits.
