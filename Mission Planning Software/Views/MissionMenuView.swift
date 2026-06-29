@@ -45,8 +45,14 @@ struct MissionMenuView: View {
                     } label: {
                         Label("Edit Mission", systemImage: "pencil.and.outline")
                     }
+
+                    NavigationLink {
+                        MissionLibraryView()
+                    } label: {
+                        Label("Mission Library", systemImage: "folder")
+                    }
                 } footer: {
-                    Text("Add, move, and adjust waypoints on the map.")
+                    Text("Add or adjust waypoints, or save, load, and manage missions.")
                 }
             }
             .navigationTitle(mission.missionName)

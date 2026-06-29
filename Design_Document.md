@@ -114,9 +114,79 @@ File layout (under `Mission Planning Software/`):
 * **Radius visualization:** Navigation Mode draws a subtle green dashed trigger ring around the **active** waypoint (`MapCircle`); Edit Mode draws a solid yellow editable circle around the **selected** waypoint.
 * **Draggable handle:** placed due-east on the circle via `CLLocationCoordinate2D.coordinate(bearingDegrees:distanceMeters:)`. Dragging converts the touch to a coordinate through `MapReader`/`MapProxy.convert(_:from: .global)`, sets radius = distance(center, touch) via `setRadius` (clamped 2–3000 m), with a live meters label on the handle and in `SelectedWaypointBar`.
 
-### Phase 2 remaining (planned)
+### Phase 2D — ✅ Moving waypoints (two mechanisms)
 
-* **2D — On-map gestures (move):** long-press-drag to move a waypoint — highest MapKit risk; approach may be adapted. (Delete is already covered by 2B.)
+* **Lock-gated press-and-hold drag** (tablet-friendly): off by default. A lock button (top-leading in Edit Mode, `MissionManager.isDragUnlocked`) unlocks it. When unlocked, a `LongPressGesture(0.25s).sequenced(before: DragGesture(.global))` on a marker repositions it via `MapProxy.convert` → `moveWaypoint(id:to:)`. The gesture is only attached when unlocked so a locked map pans normally.
+* **Reticle "Move on map"** (phone-friendly): from `SelectedWaypointBar` or a waypoint list row. `beginMovingOnMap(id:)` centers the camera on the waypoint so it sits under the crosshair; `onMapCameraChange(.continuous)` then pins the waypoint to the map center as you pan. The bottom bar swaps to `MoveModeBar` (**Cancel** restores the original coordinate, **Drop Here** confirms at center). Top banner shows "MOVING WP N".
+* **Model:** `isDragUnlocked`/`toggleDragLock`, `moveWaypoint(id:to:)`, `movingWaypointID` + `movingWaypoint`/`isMovingOnMap`, `beginMovingOnMap`/`confirmMovingOnMap`/`cancelMovingOnMap` (stores original coordinate for cancel). `exitEditMode` cancels any in-progress move and re-locks dragging.
+
+**Phase 2 (Mission Editor) is complete.** Next: Phase 3 (Persistence, KML/KMZ import/export, mission library).
+
+### Field-test fixes (post-Phase 2)
+
+* **Targeting arrow vs. map rotation:** the arrow rotation is now `bearingToActive − mapHeading` (map heading captured from `context.camera.heading` in `onMapCameraChange`). Previously it used the raw true bearing, so it pointed wrong in heading-up tracking or after a two-finger rotate. North-up (heading 0) is unchanged.
+* **Radius handle vs. drag-to-move:** the yellow radius drag handle is hidden while `isDragUnlocked` is true, so it can't be grabbed by accident when press-and-hold-dragging a waypoint. The radius circle still shows.
+* **Arrow 0°/360° spin:** `TargetingArrowView` now animates an accumulated `displayedAngle`, advancing by the shortest signed delta (`−180…180°`) per update instead of animating the raw bearing. Fixes the near-full backward spin when crossing north.
+
+---
+
+## 6. Phase 3 — Persistence, Import/Export & Library
+
+**Storage decision:** missions are stored **as KML files** in the app's Documents directory (one format end-to-end). `activationRadius` round-trips via `<ExtendedData><Data name="activationRadius">`. KML parsing uses Foundation's built-in `XMLParser` (no AEXML dependency).
+
+### Phase 3A — ✅ Mission persistence + Library
+
+* **Models:** `Mission` (id, name, waypoints, activeIndex) and `Waypoint` are `nonisolated` value types (no actor isolation, so the parser can build them off the main actor cleanly).
+* **`KMLCodec`:** `encode(_:)` → KML string (XML-escaped names, `lon,lat,alt` coordinate order, radius in ExtendedData); `decode(_:fallbackName:)` via a `nonisolated` `XMLParser` delegate that reads Placemark name/coordinates and the `activationRadius` Data value. Round-trip verified offline (coords, radius, escaping).
+* **`MissionStore`:** lists `*.kml` in Documents (newest first, as `MissionFile`), `save(_:fileName:)`, `load(_:)`, `delete(_:)`, name sanitization. Library uses the file name as the mission's display name.
+* **`MissionManager`:** `currentMission` snapshot, `load(_:from:)`, `markSaved(as:url:)`, `newMission()` (clears + enters Edit Mode), and a `currentFileURL` for the backing file.
+* **`MissionLibraryView`** (pushed from the menu's `MissionLibrary` link): Current-mission section with an **editable name `TextField`** (the name is the file name), **Save Mission**, and **New Mission**; Saved-missions section with load (tap), delete (swipe / EditButton), modified date, and a check on the active file.
+* **Save semantics (revised):** saving to an **existing** name shows a "Replace Mission?" confirmation before overwriting; a **new** name just saves a separate mission (never auto-deletes). Renaming = save under the new name, then delete the old one. (`MissionStore.exists(name:)` / `url(forName:)`.)
+
+### Phase 3B — ✅ Export / Share
+
+* **`Export / Share (KML)`** in the Library's Current-mission section: a `ShareLink` over a temp `.kml` file written from the live `currentMission` (so it reflects unsaved edits and the current name). `refreshExport()` regenerates it on appear, on name change, and after Save/New; the temp file is named `<mission name>.kml` for a sensible share filename. Hidden when the mission has no waypoints. Gives AirDrop / Save to Files / Mail / etc.
+
+### Phase 3C — ✅ KML import
+
+* **`Import KML…`** in the Library opens a `.fileImporter`. KML has no system UTType, so the allowed type is `UTType(filenameExtension: "kml")` (a dynamic, extension-matched type).
+* `importFile(_:)` wraps the read in `startAccessingSecurityScopedResource()` / `stop…` (files come from outside the sandbox), validates by parsing with `KMLCodec.decode` (clear error if it has no readable waypoints), then saves a normalized copy into the library under a **non-colliding** name via `MissionStore.uniqueName(base:)` (" 2", " 3", …). The imported mission appears at the top of the Saved list (tap to load).
+* Full external round-trip now works: Export a `.kml` → reimport it.
+
+### Phase 3 remaining (planned)
+
+* **3D — KMZ:** add ZIPFoundation (the one external dependency + Xcode project change); unzip `.kmz` → parse `doc.kml`; optional `.kmz` export.
+
+---
+
+## 7. TLS — Tactical Layer Symbols (drawn areas)
+
+**Concept:** alongside navigation waypoints, the user draws enclosed **areas** ("TLS"). Each area has a colour and is **outline-only by default**, with an optional translucent **fill** (e.g. a red no-go zone).
+
+**Storage decision (settled):** a **single KML** holds both — `<Point>` placemarks for waypoints, `<Polygon>` placemarks for TLS — grouped in named `<Folder>` layers (`Waypoints`, `TLS`). This is standard and interoperable (areas render as polygons in Google Earth/ATAK). KMZ stays an optional packaging wrapper (3D), not a requirement. Rejected alternatives: KMZ-with-multiple-KMLs (readers usually only load `doc.kml`) and "specially-named waypoint sequences" (non-standard; other tools just see points).
+
+### TLS-A — ✅ Model + KML storage + rendering
+
+* **`TLSArea`** (`nonisolated`): id, name, `vertices: [CLLocationCoordinate2D]` (open ring), `colorHex`, `filled`. `TLSPalette` holds preset RGB hex colours. `Color(hex:)` helper bridges to SwiftUI.
+* **Model wiring:** `Mission.areas` + `MissionManager.areas` (with mock "Op Area" outline + "No-Go" filled), threaded through `currentMission` / `load` / `newMission`.
+* **KML codec:** encodes a `TLS` folder of `<Polygon>` placemarks, each with a `<Style>` (LineStyle + PolyStyle, KML `aabbggrr` colour, `<fill>` flag) for interop **and** `<ExtendedData>` (`color`, `filled`) for exact in-app round-trip; coordinate ring is auto-closed. Decoder tracks geometry (`<Point>` → waypoint, `<Polygon>` → area), reads multi-tuple ring coordinates, strips the duplicate closing vertex, and reads colour/fill from ExtendedData. Round-trip verified offline (vertices, colour, fill, byte order).
+* **Rendering:** `MapPolygon` per area (beneath route/markers, both modes) — translucent fill when `filled`, otherwise clear with a coloured stroke.
+
+### TLS-B — ✅ Draw mode + area editing
+
+* **Layer toggle:** a segmented `Waypoints / Areas` picker at the top of Edit Mode (`MissionManager.editLayer`, switched via `setEditLayer` which clears selections / in-progress draws). The lock button, radius handle, and waypoint tap/drag are gated to the waypoints layer.
+* **Drawing:** "Draw Area" starts a vertex-by-vertex draw using the same center crosshair as waypoint dropping. `DrawAreaBar` = Cancel / Undo / **Add** (drops a vertex at the crosshair) / **Finish** (commits when ≥ 3 vertices, then selects it). Live draft = dashed yellow polyline + vertex dots; banner shows the running point count. State: `isDrawingArea`, `draftVertices`, `beginDrawingArea`/`addDraftVertex`/`undoDraftVertex`/`finishDrawingArea`/`cancelDrawingArea`.
+* **Selection & styling:** each area shows a tappable centroid label (`AreaMarkerView`); selected area gets a thicker outline. `SelectedAreaBar` gives a colour swatch row (`ColorSwatchRow` / `TLSPalette`), a fill toggle, edit (opens list), delete, deselect. `AreaListView` (sheet) edits name / colour / fill, swipe-deletes, and "Show on map" recenters. Model: `selectedArea`, `selectArea`/`deselectArea`, `setAreaColor`, `toggleAreaFilled`, `deleteArea`/`deleteSelectedArea`/`deleteAreas(atOffsets:)`, `indexOfArea`, `TLSArea.center`.
+* **Save/load:** unchanged codec path — areas persist through KML save/load (round-trip verified). `newMission`/`exitEditMode` reset layer + area state.
+
+### TLS-C — ✅ Vertex editing + nav label toggle
+
+* **Vertex editing:** the selected-area bar's **Edit Shape** (`hand.draw`) enters `isEditingAreaShape`. Each vertex shows a draggable white handle (drag → `moveAreaVertex` via `MapProxy.convert`; double-tap → `removeAreaVertex`, min 3); each edge midpoint shows a green **+** handle (tap → `insertAreaVertex`). `ShapeEditBar` = Done + hint; layer picker / centroid labels hidden while shaping. Handles built as a single `ForEach` of uniquely-id'd `ShapeHandle`s to avoid annotation-identity clashes.
+* **Nav label toggle:** `TLSArea.showLabel` (round-tripped via `<ExtendedData>`), toggled per-area from the selected-area bar (`tag`/`tag.fill`) and the area list. Areas with `showLabel` render their label in Navigation Mode (non-interactive); edit-mode labels are unchanged.
+
+### TLS — planned tweaks (later)
+
+* Per-area line width; richer KML import (read `<Style>` colour when our `<ExtendedData>` is absent, e.g. third-party files); tap-empty-map to add a vertex while drawing.
 
 Build notes:
 * Project uses a **synchronized root group** — new Swift files dropped into the folder are auto-added to the target (no `.pbxproj` edits needed for sources).

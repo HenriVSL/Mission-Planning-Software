@@ -8,7 +8,7 @@
 import CoreLocation
 import Foundation
 
-struct Waypoint: Identifiable, Equatable {
+nonisolated struct Waypoint: Identifiable, Equatable {
     let id: UUID
     var name: String?
     var coordinate: CLLocationCoordinate2D

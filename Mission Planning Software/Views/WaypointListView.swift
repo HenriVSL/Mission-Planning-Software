@@ -16,6 +16,8 @@ struct WaypointListView: View {
 
     /// Recenter the map on a waypoint (provided by the map view).
     let onLocate: (Waypoint) -> Void
+    /// Begin repositioning a waypoint via the center reticle (provided by map).
+    let onMove: (Waypoint) -> Void
 
     /// Rows currently expanded for editing.
     @State private var expanded: Set<Waypoint.ID> = []
@@ -89,14 +91,25 @@ struct WaypointListView: View {
                         .keyboardType(.numbersAndPunctuation)
                 }
 
-                Button {
-                    onLocate(waypoint.wrappedValue)
-                    dismiss()
-                } label: {
-                    Label("Show on map", systemImage: "scope")
+                HStack(spacing: 10) {
+                    Button {
+                        onLocate(waypoint.wrappedValue)
+                        dismiss()
+                    } label: {
+                        Label("Show on map", systemImage: "scope")
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.green)
+
+                    Button {
+                        onMove(waypoint.wrappedValue)
+                        dismiss()
+                    } label: {
+                        Label("Move on map", systemImage: "arrow.up.and.down.and.arrow.left.and.right")
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.green)
                 }
-                .buttonStyle(.bordered)
-                .tint(.green)
             }
             .padding(.vertical, 4)
         } label: {
@@ -133,7 +146,7 @@ struct WaypointListView: View {
 }
 
 /// Small labeled field wrapper for consistent editing rows.
-private struct LabeledField<Content: View>: View {
+struct LabeledField<Content: View>: View {
     let title: String
     @ViewBuilder let content: Content
 
@@ -150,15 +163,5 @@ private struct LabeledField<Content: View>: View {
             content
                 .textFieldStyle(.roundedBorder)
         }
-    }
-}
-
-private extension Binding where Value == String? {
-    /// Bridges an optional String to a non-optional binding for TextField.
-    func orEmpty() -> Binding<String> {
-        Binding<String>(
-            get: { wrappedValue ?? "" },
-            set: { wrappedValue = $0.isEmpty ? nil : $0 }
-        )
     }
 }

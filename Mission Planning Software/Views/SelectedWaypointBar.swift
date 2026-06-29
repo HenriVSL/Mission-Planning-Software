@@ -14,6 +14,7 @@ struct SelectedWaypointBar: View {
     let index: Int
     let waypoint: Waypoint
     let onEdit: () -> Void
+    let onMove: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
@@ -36,6 +37,13 @@ struct SelectedWaypointBar: View {
             }
 
             Spacer(minLength: 8)
+
+            Button(action: onMove) {
+                Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
+                    .font(.headline)
+                    .foregroundStyle(.green)
+                    .frame(width: 36, height: 32)
+            }
 
             Button(action: onEdit) {
                 Image(systemName: "slider.horizontal.3")

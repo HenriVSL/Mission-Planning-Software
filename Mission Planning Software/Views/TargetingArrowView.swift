@@ -9,8 +9,13 @@
 import SwiftUI
 
 struct TargetingArrowView: View {
-    /// True bearing to the active waypoint, in degrees clockwise from north.
+    /// Target angle to the active waypoint, in degrees clockwise from screen-up.
     let bearing: Double
+
+    /// Continuously accumulated rotation. Updated by the shortest signed delta on
+    /// each new bearing so the arrow never spins the "long way" across the 0/360
+    /// boundary (e.g. 359° → 1° rotates +2°, not −358°).
+    @State private var displayedAngle: Double = 0
 
     var body: some View {
         ZStack {
@@ -22,12 +27,25 @@ struct TargetingArrowView: View {
             Image(systemName: "location.north.fill")
                 .font(.system(size: 22, weight: .heavy))
                 .foregroundStyle(.green)
-                .rotationEffect(.degrees(bearing))
+                .rotationEffect(.degrees(displayedAngle))
         }
         .frame(width: 46, height: 46)
         .shadow(color: .black.opacity(0.5), radius: 3, y: 1)
-        // Smooth the arrow sweep as new bearings arrive.
-        .animation(.easeInOut(duration: 0.25), value: bearing)
+        // Smooth the arrow sweep; always takes the short path thanks to unwrapping.
+        .animation(.easeInOut(duration: 0.25), value: displayedAngle)
+        .onAppear { displayedAngle = bearing }
+        .onChange(of: bearing) { _, newValue in
+            displayedAngle += shortestDelta(from: displayedAngle, to: newValue)
+        }
+    }
+
+    /// Smallest signed rotation (−180°…180°) to get from `current` to `target`,
+    /// accounting for `current` being an unbounded accumulated angle.
+    private func shortestDelta(from current: Double, to target: Double) -> Double {
+        var delta = (target - current).truncatingRemainder(dividingBy: 360)
+        if delta > 180 { delta -= 360 }
+        if delta < -180 { delta += 360 }
+        return delta
     }
 }
 
