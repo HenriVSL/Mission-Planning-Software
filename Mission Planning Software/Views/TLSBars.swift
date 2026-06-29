@@ -129,7 +129,7 @@ struct ShapeEditBar: View {
 
     var body: some View {
         VStack(spacing: 6) {
-            Text("Drag a corner to move · tap + to add · double-tap to remove")
+            Text("Hold a corner to drag · tap + to add · double-tap to remove")
                 .font(.caption2)
                 .foregroundStyle(.white.opacity(0.75))
                 .multilineTextAlignment(.center)

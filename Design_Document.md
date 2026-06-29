@@ -181,7 +181,7 @@ File layout (under `Mission Planning Software/`):
 
 ### TLS-C — ✅ Vertex editing + nav label toggle
 
-* **Vertex editing:** the selected-area bar's **Edit Shape** (`hand.draw`) enters `isEditingAreaShape`. Each vertex shows a draggable white handle (drag → `moveAreaVertex` via `MapProxy.convert`; double-tap → `removeAreaVertex`, min 3); each edge midpoint shows a green **+** handle (tap → `insertAreaVertex`). `ShapeEditBar` = Done + hint; layer picker / centroid labels hidden while shaping. Handles built as a single `ForEach` of uniquely-id'd `ShapeHandle`s to avoid annotation-identity clashes.
+* **Vertex editing:** the selected-area bar's **Edit Shape** (`hand.draw`) enters `isEditingAreaShape`. Each vertex shows a white handle — **press-and-hold then drag** to move (`LongPressGesture.sequenced(before: DragGesture(minimumDistance: 0, .global))` → `moveAreaVertex` via `MapProxy.convert`); **double-tap** → `removeAreaVertex` (min 3). A plain `minimumDistance: 0` drag would claim the touch and break double-tap delete, and a `minimumDistance > 0` drag lets the map pan win — so the hold-then-drag pattern (same as waypoint move) is used. Each edge midpoint shows a green **+** handle (tap → `insertAreaVertex`). `ShapeEditBar` = Done + hint; layer picker / centroid labels hidden while shaping. Handles built as a single `ForEach` of uniquely-id'd `ShapeHandle`s to avoid annotation-identity clashes.
 * **Nav label toggle:** `TLSArea.showLabel` (round-tripped via `<ExtendedData>`), toggled per-area from the selected-area bar (`tag`/`tag.fill`) and the area list. Areas with `showLabel` render their label in Navigation Mode (non-interactive); edit-mode labels are unchanged.
 
 ### TLS — planned tweaks (later)

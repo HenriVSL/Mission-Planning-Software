@@ -528,10 +528,14 @@ struct MissionMapView: View {
                 .frame(width: 18, height: 18)
                 .frame(width: 40, height: 40)
                 .contentShape(Rectangle())
+                // Hold then drag to move (claims the touch from the map pan);
+                // a quick double-tap stays distinct for delete.
                 .gesture(
-                    DragGesture(minimumDistance: 4, coordinateSpace: .global)
+                    LongPressGesture(minimumDuration: 0.2)
+                        .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .global))
                         .onChanged { value in
-                            if let coordinate = proxy.convert(value.location, from: .global) {
+                            if case .second(true, let drag?) = value,
+                               let coordinate = proxy.convert(drag.location, from: .global) {
                                 mission.moveAreaVertex(areaID: areaID, index: index, to: coordinate)
                             }
                         }
