@@ -169,8 +169,8 @@ struct AreaMarkerView: View {
 
 // MARK: - Shared bar pieces
 
-/// A full-width labeled bar button used by the TLS bars.
-private func barButton(
+/// A full-width labeled bar button used by the TLS / marker bars.
+func barButton(
     _ title: String,
     _ systemImage: String,
     tint: Color,
@@ -190,8 +190,8 @@ private func barButton(
     }
 }
 
-private extension View {
-    /// Shared capsule/material chrome for the TLS bottom bars.
+extension View {
+    /// Shared capsule/material chrome for the TLS / marker bottom bars.
     func barChrome() -> some View {
         self
             .padding(.horizontal, 16)

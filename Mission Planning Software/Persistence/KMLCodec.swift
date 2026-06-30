@@ -51,8 +51,32 @@ nonisolated enum KMLCodec {
             kml += "\n</Folder>"
         }
 
+        if !mission.markers.isEmpty {
+            kml += "\n<Folder>\n<name>Markers</name>"
+            for (index, marker) in mission.markers.enumerated() {
+                kml += encodeMarker(marker, index: index)
+            }
+            kml += "\n</Folder>"
+        }
+
         kml += "\n</Document>\n</kml>\n"
         return kml
+    }
+
+    private static func encodeMarker(_ marker: MapMarker, index: Int) -> String {
+        let name = marker.name ?? "Marker \(index)"
+        return """
+
+        <Placemark>
+        <name>\(escape(name))</name>
+        <ExtendedData>
+        <Data name="featureType"><value>marker</value></Data>
+        <Data name="emoji"><value>\(escape(marker.emoji))</value></Data>
+        <Data name="showLabel"><value>\(marker.showLabel ? 1 : 0)</value></Data>
+        </ExtendedData>
+        <Point><coordinates>\(coord(marker.coordinate))</coordinates></Point>
+        </Placemark>
+        """
     }
 
     private static func encodeArea(_ area: TLSArea, index: Int) -> String {
@@ -124,6 +148,7 @@ private nonisolated final class KMLParserDelegate: NSObject, XMLParserDelegate {
     private var documentName: String?
     private var waypoints: [Waypoint] = []
     private var areas: [TLSArea] = []
+    private var markers: [MapMarker] = []
 
     private var insidePlacemark = false
     private var geometry: Geometry = .none
@@ -133,6 +158,8 @@ private nonisolated final class KMLParserDelegate: NSObject, XMLParserDelegate {
     private var placemarkColor: String?
     private var placemarkFilled: Bool?
     private var placemarkShowLabel: Bool?
+    private var placemarkFeatureType: String?
+    private var placemarkEmoji: String?
 
     private var currentDataName: String?
     private var buffer = ""
@@ -140,8 +167,10 @@ private nonisolated final class KMLParserDelegate: NSObject, XMLParserDelegate {
     func parse(_ data: Data, fallbackName: String) -> Mission? {
         let parser = XMLParser(data: data)
         parser.delegate = self
-        guard parser.parse(), !(waypoints.isEmpty && areas.isEmpty) else { return nil }
-        return Mission(name: documentName ?? fallbackName, waypoints: waypoints, areas: areas)
+        guard parser.parse(),
+              !(waypoints.isEmpty && areas.isEmpty && markers.isEmpty) else { return nil }
+        return Mission(name: documentName ?? fallbackName,
+                       waypoints: waypoints, areas: areas, markers: markers)
     }
 
     func parser(_ parser: XMLParser,
@@ -160,6 +189,8 @@ private nonisolated final class KMLParserDelegate: NSObject, XMLParserDelegate {
             placemarkColor = nil
             placemarkFilled = nil
             placemarkShowLabel = nil
+            placemarkFeatureType = nil
+            placemarkEmoji = nil
         case "Point":
             geometry = .point
         case "Polygon":
@@ -195,6 +226,8 @@ private nonisolated final class KMLParserDelegate: NSObject, XMLParserDelegate {
             case "color": if !text.isEmpty { placemarkColor = text }
             case "filled": placemarkFilled = (text == "1" || text.lowercased() == "true")
             case "showLabel": placemarkShowLabel = (text == "1" || text.lowercased() == "true")
+            case "featureType": if !text.isEmpty { placemarkFeatureType = text }
+            case "emoji": if !text.isEmpty { placemarkEmoji = text }
             default: break
             }
         case "Data":
@@ -228,11 +261,20 @@ private nonisolated final class KMLParserDelegate: NSObject, XMLParserDelegate {
             ))
         case .point:
             guard let coordinate = Self.parseCoordinates(placemarkCoordinates).first else { return }
-            waypoints.append(Waypoint(
-                name: name,
-                coordinate: coordinate,
-                activationRadius: placemarkRadius ?? 25
-            ))
+            if placemarkFeatureType == "marker" {
+                markers.append(MapMarker(
+                    emoji: placemarkEmoji ?? "📍",
+                    name: name,
+                    coordinate: coordinate,
+                    showLabel: placemarkShowLabel ?? false
+                ))
+            } else {
+                waypoints.append(Waypoint(
+                    name: name,
+                    coordinate: coordinate,
+                    activationRadius: placemarkRadius ?? 25
+                ))
+            }
         case .none:
             break
         }

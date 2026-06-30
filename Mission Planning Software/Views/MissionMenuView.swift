@@ -13,6 +13,7 @@ import SwiftUI
 struct MissionMenuView: View {
     @Environment(MissionManager.self) private var mission
     @Environment(LocationManager.self) private var location
+    @Environment(AppSettings.self) private var settings
     @Environment(\.dismiss) private var dismiss
 
     private var distanceToActive: Double? {
@@ -22,7 +23,9 @@ struct MissionMenuView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        @Bindable var settings = settings
+
+        return NavigationStack {
             List {
                 Section("Active Target") {
                     if let active = mission.activeWaypoint {
@@ -54,6 +57,15 @@ struct MissionMenuView: View {
                 } footer: {
                     Text("Add or adjust waypoints, or save, load, and manage missions.")
                 }
+
+                Section("Display") {
+                    Picker("Map Type", selection: $settings.mapStyle) {
+                        ForEach(MapStyleOption.allCases) { option in
+                            Label(option.label, systemImage: option.systemImage).tag(option)
+                        }
+                    }
+                    Toggle("Keep Screen Awake", isOn: $settings.keepAwake)
+                }
             }
             .navigationTitle(mission.missionName)
             .navigationBarTitleDisplayMode(.inline)
@@ -63,7 +75,7 @@ struct MissionMenuView: View {
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        .presentationDetents([.fraction(0.7), .large])
         .presentationDragIndicator(.visible)
     }
 

@@ -13,5 +13,6 @@ nonisolated struct Mission: Identifiable {
     var name: String
     var waypoints: [Waypoint]
     var areas: [TLSArea] = []
+    var markers: [MapMarker] = []
     var currentActiveWaypointIndex: Int = 0
 }

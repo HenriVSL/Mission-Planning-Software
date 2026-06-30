@@ -19,6 +19,7 @@ enum AppMode {
 enum EditLayer {
     case waypoints
     case areas        // TLS (drawn areas)
+    case markers      // emoji icons
 }
 
 @Observable
@@ -28,6 +29,8 @@ final class MissionManager {
     var waypoints: [Waypoint]
     /// Tactical Layer Symbols (drawn areas) overlaid on the map.
     var areas: [TLSArea]
+    /// Free-form emoji markers overlaid on the map.
+    var markers: [MapMarker]
     var currentActiveWaypointIndex: Int
 
     /// Current interaction mode. Navigation is the launch default.
@@ -42,6 +45,13 @@ final class MissionManager {
     var editLayer: EditLayer = .waypoints
     /// Selected TLS area (areas layer).
     var selectedAreaID: TLSArea.ID?
+    /// Selected emoji marker (markers layer).
+    var selectedMarkerID: MapMarker.ID?
+    /// Emoji used for the next dropped marker.
+    var currentEmoji: String = "📍"
+    /// Marker currently being repositioned via the center reticle.
+    var movingMarkerID: MapMarker.ID?
+    @ObservationIgnored private var movingMarkerOriginalCoordinate: CLLocationCoordinate2D?
     /// Whether an area is currently being drawn vertex-by-vertex.
     var isDrawingArea = false
     /// Vertices placed so far for the area being drawn.
@@ -60,15 +70,48 @@ final class MissionManager {
     @ObservationIgnored private var movingOriginalCoordinate: CLLocationCoordinate2D?
 
     init(
-        missionName: String = "Orivesi Recon",
-        waypoints: [Waypoint] = MissionManager.mockWaypoints,
-        areas: [TLSArea] = MissionManager.mockAreas,
+        missionName: String = "New Mission",
+        waypoints: [Waypoint] = [],
+        areas: [TLSArea] = [],
+        markers: [MapMarker] = [],
         currentActiveWaypointIndex: Int = 0
     ) {
         self.missionName = missionName
         self.waypoints = waypoints
         self.areas = areas
+        self.markers = markers
         self.currentActiveWaypointIndex = currentActiveWaypointIndex
+    }
+
+    @ObservationIgnored private var didLoadInitial = false
+    private static let lastMissionKey = "lastMissionFileName"
+
+    /// On first launch, load the last-used mission (or the most recently saved
+    /// one) from the library. Stays empty if there are no saved missions.
+    func loadLastMissionIfAvailable() {
+        guard !didLoadInitial else { return }
+        didLoadInitial = true
+
+        // Prefer the last-used file (tracked by name, since the sandbox path
+        // can change between launches).
+        if let name = UserDefaults.standard.string(forKey: Self.lastMissionKey) {
+            let url = MissionStore.documentsURL.appendingPathComponent(name)
+            if FileManager.default.fileExists(atPath: url.path),
+               let loaded = MissionStore.load(url) {
+                load(loaded, from: url)
+                return
+            }
+        }
+        // Fall back to the most recently modified saved mission.
+        if let newest = MissionStore.list().first, let loaded = MissionStore.load(newest.url) {
+            load(loaded, from: newest.url)
+        }
+    }
+
+    private func rememberLastMission(_ url: URL?) {
+        if let name = url?.lastPathComponent {
+            UserDefaults.standard.set(name, forKey: Self.lastMissionKey)
+        }
     }
 
     // MARK: - Library load / save
@@ -78,26 +121,32 @@ final class MissionManager {
         Mission(name: missionName,
                 waypoints: waypoints,
                 areas: areas,
+                markers: markers,
                 currentActiveWaypointIndex: currentActiveWaypointIndex)
     }
 
     /// Replace the current mission with a loaded one, resetting edit state.
     func load(_ mission: Mission, from url: URL?) {
-        cancelMovingOnMap()
+        cancelAnyMoveOnMap()
         missionName = mission.name
         waypoints = mission.waypoints
         areas = mission.areas
+        markers = mission.markers
         currentActiveWaypointIndex = mission.waypoints.isEmpty
             ? 0
             : min(max(mission.currentActiveWaypointIndex, 0), mission.waypoints.count - 1)
         currentFileURL = url
         selectedWaypointID = nil
+        selectedAreaID = nil
+        selectedMarkerID = nil
+        rememberLastMission(url)
     }
 
     /// Record that the current mission was saved to `url` under `name`.
     func markSaved(as name: String, url: URL) {
         missionName = name
         currentFileURL = url
+        rememberLastMission(url)
     }
 
     /// Start a fresh, empty mission in Edit Mode so waypoints can be dropped.
@@ -107,10 +156,12 @@ final class MissionManager {
         missionName = "New Mission"
         waypoints = []
         areas = []
+        markers = []
         currentActiveWaypointIndex = 0
         currentFileURL = nil
         selectedWaypointID = nil
         selectedAreaID = nil
+        selectedMarkerID = nil
         isEditingAreaShape = false
         editLayer = .waypoints
         mode = .edit
@@ -159,12 +210,13 @@ final class MissionManager {
     func enterEditMode() { mode = .edit }
 
     func exitEditMode() {
-        cancelMovingOnMap()
+        cancelAnyMoveOnMap()
         cancelDrawingArea()
         mode = .navigation
         editLayer = .waypoints
         selectedWaypointID = nil
         selectedAreaID = nil
+        selectedMarkerID = nil
         isEditingAreaShape = false
         isDragUnlocked = false
     }
@@ -173,9 +225,10 @@ final class MissionManager {
     func setEditLayer(_ layer: EditLayer) {
         guard layer != editLayer else { return }
         cancelDrawingArea()
-        cancelMovingOnMap()
+        cancelAnyMoveOnMap()
         selectedWaypointID = nil
         selectedAreaID = nil
+        selectedMarkerID = nil
         isEditingAreaShape = false
         editLayer = layer
     }
@@ -247,7 +300,7 @@ final class MissionManager {
         waypoints[index].coordinate = coordinate
     }
 
-    var isMovingOnMap: Bool { movingWaypointID != nil }
+    var isMovingOnMap: Bool { movingWaypointID != nil || movingMarkerID != nil }
 
     var movingWaypoint: Waypoint? {
         guard let id = movingWaypointID else { return nil }
@@ -404,42 +457,90 @@ final class MissionManager {
         }
     }
 
-    // MARK: - Phase 1 mock data
+    // MARK: - Markers (emoji)
 
-    /// Hardcoded route near Orivesi, Pirkanmaa (~61.677, 24.356) for field
-    /// testing of GPS tracking and route rendering. Replaced by imported /
-    /// user-authored missions in later phases.
-    static let mockWaypoints: [Waypoint] = [
-        Waypoint(name: "Alpha",   coordinate: .init(latitude: 61.6770, longitude: 24.3560), activationRadius: 25),
-        Waypoint(name: "Bravo",   coordinate: .init(latitude: 61.6805, longitude: 24.3625), activationRadius: 25),
-        Waypoint(name: "Charlie", coordinate: .init(latitude: 61.6840, longitude: 24.3540), activationRadius: 30),
-        Waypoint(name: "Delta",   coordinate: .init(latitude: 61.6795, longitude: 24.3470), activationRadius: 20),
-        Waypoint(name: "Echo",    coordinate: .init(latitude: 61.6760, longitude: 24.3500), activationRadius: 25),
-    ]
+    var selectedMarker: MapMarker? {
+        guard let id = selectedMarkerID else { return nil }
+        return markers.first { $0.id == id }
+    }
 
-    /// Mock TLS areas near the route: a blue outlined operating area and a
-    /// filled red no-go zone, for visualizing Phase TLS rendering.
-    static let mockAreas: [TLSArea] = [
-        TLSArea(
-            name: "Op Area",
-            vertices: [
-                .init(latitude: 61.6790, longitude: 24.3500),
-                .init(latitude: 61.6835, longitude: 24.3585),
-                .init(latitude: 61.6800, longitude: 24.3660),
-                .init(latitude: 61.6760, longitude: 24.3585),
-            ],
-            colorHex: "0A84FF",
-            filled: false
-        ),
-        TLSArea(
-            name: "No-Go",
-            vertices: [
-                .init(latitude: 61.6758, longitude: 24.3585),
-                .init(latitude: 61.6772, longitude: 24.3602),
-                .init(latitude: 61.6748, longitude: 24.3608),
-            ],
-            colorHex: "FF3B30",
-            filled: true
-        ),
-    ]
+    func indexOfMarker(_ id: MapMarker.ID) -> Int? {
+        markers.firstIndex { $0.id == id }
+    }
+
+    func selectMarker(_ id: MapMarker.ID) { selectedMarkerID = id }
+    func deselectMarker() { selectedMarkerID = nil }
+
+    /// Drop a new marker (using `currentEmoji`) at the given coordinate; selects it.
+    @discardableResult
+    func addMarker(at coordinate: CLLocationCoordinate2D) -> MapMarker {
+        let marker = MapMarker(emoji: currentEmoji, coordinate: coordinate)
+        markers.append(marker)
+        selectedMarkerID = marker.id
+        return marker
+    }
+
+    func setMarkerEmoji(id: MapMarker.ID, emoji: String) {
+        guard let index = markers.firstIndex(where: { $0.id == id }), !emoji.isEmpty else { return }
+        markers[index].emoji = emoji
+    }
+
+    func toggleMarkerShowLabel(id: MapMarker.ID) {
+        guard let index = markers.firstIndex(where: { $0.id == id }) else { return }
+        markers[index].showLabel.toggle()
+    }
+
+    func deleteMarker(id: MapMarker.ID) {
+        markers.removeAll { $0.id == id }
+        if selectedMarkerID == id { selectedMarkerID = nil }
+    }
+
+    func deleteSelectedMarker() {
+        if let id = selectedMarkerID { deleteMarker(id: id) }
+    }
+
+    func deleteMarkers(atOffsets offsets: IndexSet) {
+        for index in offsets.sorted(by: >) where markers.indices.contains(index) {
+            let removed = markers.remove(at: index)
+            if selectedMarkerID == removed.id { selectedMarkerID = nil }
+        }
+    }
+
+    // Moving markers (drag + reticle), mirroring waypoints.
+
+    func moveMarker(id: MapMarker.ID, to coordinate: CLLocationCoordinate2D) {
+        guard let index = markers.firstIndex(where: { $0.id == id }) else { return }
+        markers[index].coordinate = coordinate
+    }
+
+    var movingMarker: MapMarker? {
+        guard let id = movingMarkerID else { return nil }
+        return markers.first { $0.id == id }
+    }
+
+    func beginMovingMarkerOnMap(id: MapMarker.ID) {
+        guard let marker = markers.first(where: { $0.id == id }) else { return }
+        selectedMarkerID = id
+        movingMarkerID = id
+        movingMarkerOriginalCoordinate = marker.coordinate
+    }
+
+    func confirmMovingMarkerOnMap() {
+        movingMarkerID = nil
+        movingMarkerOriginalCoordinate = nil
+    }
+
+    func cancelMovingMarkerOnMap() {
+        if let id = movingMarkerID, let original = movingMarkerOriginalCoordinate {
+            moveMarker(id: id, to: original)
+        }
+        movingMarkerID = nil
+        movingMarkerOriginalCoordinate = nil
+    }
+
+    /// Cancel any in-progress reticle move (waypoint or marker).
+    func cancelAnyMoveOnMap() {
+        cancelMovingOnMap()
+        cancelMovingMarkerOnMap()
+    }
 }

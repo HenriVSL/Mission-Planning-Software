@@ -11,12 +11,14 @@ import SwiftUI
 struct Mission_Planning_SoftwareApp: App {
     @State private var missionManager = MissionManager()
     @State private var locationManager = LocationManager()
+    @State private var settings = AppSettings()
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environment(missionManager)
                 .environment(locationManager)
+                .environment(settings)
                 .preferredColorScheme(.dark) // Default to Dark Mode for field visibility.
         }
     }

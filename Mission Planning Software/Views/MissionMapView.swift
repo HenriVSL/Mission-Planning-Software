@@ -8,10 +8,12 @@
 
 import MapKit
 import SwiftUI
+import UIKit
 
 struct MissionMapView: View {
     @Environment(MissionManager.self) private var mission
     @Environment(LocationManager.self) private var location
+    @Environment(AppSettings.self) private var settings
 
     /// Camera follows the user's location; falls back to the route region
     /// until the first GPS fix arrives.
@@ -34,6 +36,15 @@ struct MissionMapView: View {
 
     /// Whether the TLS area list editor sheet is presented.
     @State private var showingAreaList = false
+
+    /// Whether the marker list editor sheet is presented.
+    @State private var showingMarkerList = false
+
+    /// Current camera distance (meters); markers hide past a threshold.
+    @State private var mapDistance: CLLocationDistance = 0
+
+    /// Markers are hidden when zoomed out past this camera distance (declutter).
+    private let markerVisibilityMaxDistance: CLLocationDistance = 150_000
 
     /// True bearing from the user to the active (next) waypoint, in degrees from
     /// north. Always anchored at the user's position regardless of which route
@@ -79,7 +90,7 @@ struct MissionMapView: View {
                 mapContent(proxy)
                 radiusContent(proxy)
             }
-            .mapStyle(.standard(elevation: .realistic, pointsOfInterest: .excludingAll))
+            .mapStyle(mapStyle)
             .mapControls {
                 MapUserLocationButton()
                 MapCompass()
@@ -88,9 +99,13 @@ struct MissionMapView: View {
             .onMapCameraChange(frequency: .continuous) { context in
                 mapCenter = context.region.center
                 mapHeading = context.camera.heading
-                // While moving a waypoint via the reticle, keep it pinned to center.
+                mapDistance = context.camera.distance
+                // While moving via the reticle, keep the feature pinned to center.
                 if let id = mission.movingWaypointID {
                     mission.moveWaypoint(id: id, to: context.region.center)
+                }
+                if let id = mission.movingMarkerID {
+                    mission.moveMarker(id: id, to: context.region.center)
                 }
             }
             // Edit Mode reticle, pinned to the screen center (waypoint drop or
@@ -98,11 +113,18 @@ struct MissionMapView: View {
             .overlay {
                 if showsCrosshair { CrosshairView() }
             }
-            .overlay(alignment: .topLeading) { lockButton }
+            .overlay(alignment: .topTrailing) { controlIsland }
             .overlay(alignment: .top) { topControls }
             .overlay(alignment: .bottom) { bottomBar }
             .ignoresSafeArea(edges: .bottom)
-            .onAppear { location.start() }
+            .onAppear {
+                mission.loadLastMissionIfAvailable()
+                location.start()
+                UIApplication.shared.isIdleTimerDisabled = settings.keepAwake
+            }
+            .onChange(of: settings.keepAwake) { _, keepAwake in
+                UIApplication.shared.isIdleTimerDisabled = keepAwake
+            }
             .onChange(of: location.updateCount) { _, _ in
                 if let user = location.userLocation {
                     mission.evaluateArrival(at: user)
@@ -123,6 +145,9 @@ struct MissionMapView: View {
             .sheet(isPresented: $showingAreaList) {
                 AreaListView(onLocate: locateArea(_:))
             }
+            .sheet(isPresented: $showingMarkerList) {
+                MarkerListView(onLocate: locateMarker(_:))
+            }
         }
     }
 
@@ -130,10 +155,16 @@ struct MissionMapView: View {
     private var isDrawing: Bool { mission.isDrawingArea }
     private var isAreasLayer: Bool { mission.editLayer == .areas }
     private var isWaypointsLayer: Bool { mission.editLayer == .waypoints }
+    private var isMarkersLayer: Bool { mission.editLayer == .markers }
 
-    /// The crosshair is shown when placing waypoints or drawing area vertices.
+    /// The crosshair is shown when placing waypoints/markers or drawing vertices.
     private var showsCrosshair: Bool {
-        isEditing && (isWaypointsLayer || isDrawing)
+        isEditing && (isWaypointsLayer || isMarkersLayer || isDrawing)
+    }
+
+    /// Markers render unless zoomed far out — but always while editing them.
+    private var showsMarkers: Bool {
+        (isEditing && isMarkersLayer) || mapDistance <= markerVisibilityMaxDistance
     }
 
     /// Banner + the Waypoints/Areas layer toggle.
@@ -147,30 +178,70 @@ struct MissionMapView: View {
                 )) {
                     Text("Waypoints").tag(EditLayer.waypoints)
                     Text("Areas").tag(EditLayer.areas)
+                    Text("Markers").tag(EditLayer.markers)
                 }
                 .pickerStyle(.segmented)
-                .frame(maxWidth: 280)
+                .frame(maxWidth: 240)
             }
         }
         .padding(.top, 4)
     }
 
-    /// Lock / unlock press-and-hold waypoint dragging. Waypoints layer only.
+    /// The active base map style.
+    private var mapStyle: MapStyle {
+        switch settings.mapStyle {
+        case .standard: return .standard(elevation: .realistic, pointsOfInterest: .excludingAll)
+        case .hybrid: return .hybrid(elevation: .realistic, pointsOfInterest: .excludingAll)
+        case .satellite: return .imagery(elevation: .realistic)
+        }
+    }
+
+    /// Edit-mode control island (top-right): map type + drag lock together.
     @ViewBuilder
-    private var lockButton: some View {
-        if isEditing && !isMoving && isWaypointsLayer {
-            Button {
-                mission.toggleDragLock()
-            } label: {
-                Image(systemName: mission.isDragUnlocked ? "lock.open.fill" : "lock.fill")
-                    .font(.headline)
-                    .foregroundStyle(mission.isDragUnlocked ? .green : .white)
-                    .frame(width: 44, height: 44)
-                    .background(.ultraThinMaterial, in: Circle())
-                    .overlay(Circle().stroke(.white.opacity(0.15), lineWidth: 1))
+    private var controlIsland: some View {
+        if isEditing && !isMoving {
+            VStack(spacing: 4) {
+                mapStyleMenu
+                if isWaypointsLayer || isMarkersLayer {
+                    Divider().frame(width: 26).overlay(.white.opacity(0.2))
+                    lockToggle
+                }
             }
-            .padding(.leading, 12)
+            .padding(5)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(.white.opacity(0.15), lineWidth: 1))
+            .shadow(color: .black.opacity(0.35), radius: 5, y: 2)
+            .padding(.trailing, 12)
             .padding(.top, 60)
+        }
+    }
+
+    private var mapStyleMenu: some View {
+        Menu {
+            Picker("Map Type", selection: Binding(
+                get: { settings.mapStyle },
+                set: { settings.mapStyle = $0 }
+            )) {
+                ForEach(MapStyleOption.allCases) { option in
+                    Label(option.label, systemImage: option.systemImage).tag(option)
+                }
+            }
+        } label: {
+            Image(systemName: "square.3.layers.3d")
+                .font(.headline)
+                .foregroundStyle(.white)
+                .frame(width: 40, height: 40)
+        }
+    }
+
+    private var lockToggle: some View {
+        Button {
+            mission.toggleDragLock()
+        } label: {
+            Image(systemName: mission.isDragUnlocked ? "lock.open.fill" : "lock.fill")
+                .font(.headline)
+                .foregroundStyle(mission.isDragUnlocked ? .green : .white)
+                .frame(width: 40, height: 40)
         }
     }
 
@@ -180,11 +251,13 @@ struct MissionMapView: View {
     private var bottomBar: some View {
         if isMoving {
             MoveModeBar(
-                onCancel: { withAnimation { mission.cancelMovingOnMap() } },
+                onCancel: { withAnimation { mission.cancelAnyMoveOnMap() } },
                 onDrop: { confirmMove() }
             )
         } else if isEditing && isAreasLayer {
             areasBottomBar
+        } else if isEditing && isMarkersLayer {
+            markersBottomBar
         } else if isEditing {
             VStack(spacing: 8) {
                 if let selected = mission.selectedWaypoint,
@@ -227,6 +300,45 @@ struct MissionMapView: View {
         }
     }
 
+    @ViewBuilder
+    private var markersBottomBar: some View {
+        VStack(spacing: 8) {
+            if let marker = mission.selectedMarker,
+               let index = mission.indexOfMarker(marker.id) {
+                SelectedMarkerBar(index: index, marker: marker,
+                                  onMove: { beginMoveMarker(marker) })
+            }
+            MarkerEditBar(
+                onDrop: { mission.addMarker(at: mapCenter) },
+                onOpenList: { showingMarkerList = true }
+            )
+        }
+    }
+
+    /// Enter reticle-move for a marker (mirrors waypoint move).
+    private func beginMoveMarker(_ marker: MapMarker) {
+        mission.beginMovingMarkerOnMap(id: marker.id)
+        withAnimation {
+            camera = .region(MKCoordinateRegion(
+                center: marker.coordinate,
+                latitudinalMeters: 300,
+                longitudinalMeters: 300
+            ))
+        }
+    }
+
+    /// Recenter the camera on a marker and select it (marker list "Show on map").
+    private func locateMarker(_ marker: MapMarker) {
+        mission.selectMarker(marker.id)
+        withAnimation {
+            camera = .region(MKCoordinateRegion(
+                center: marker.coordinate,
+                latitudinalMeters: 400,
+                longitudinalMeters: 400
+            ))
+        }
+    }
+
     /// Recenter the camera on an area and select it (areas list "Show on map").
     private func locateArea(_ area: TLSArea) {
         mission.selectArea(area.id)
@@ -264,12 +376,15 @@ struct MissionMapView: View {
         }
     }
 
-    /// Confirm the reticle move at the current map center.
+    /// Confirm the reticle move at the current map center (waypoint or marker).
     private func confirmMove() {
         if let id = mission.movingWaypointID {
             mission.moveWaypoint(id: id, to: mapCenter)
+            mission.confirmMovingOnMap()
+        } else if let id = mission.movingMarkerID {
+            mission.moveMarker(id: id, to: mapCenter)
+            mission.confirmMovingMarkerOnMap()
         }
-        mission.confirmMovingOnMap()
     }
 
     // MARK: - Map content
@@ -367,6 +482,15 @@ struct MissionMapView: View {
             shapeEditHandles(for: area, proxy: proxy)
         }
 
+        // Emoji markers — hidden when zoomed far out (except while editing them).
+        if showsMarkers {
+            ForEach(mission.markers) { marker in
+                Annotation("", coordinate: marker.coordinate, anchor: .center) {
+                    markerAnnotation(marker, proxy: proxy)
+                }
+            }
+        }
+
         // Draft area being drawn — connecting line + vertex dots.
         if isDrawing {
             if mission.draftVertices.count >= 2 {
@@ -450,6 +574,40 @@ struct MissionMapView: View {
             )
         } else {
             marker
+        }
+    }
+
+    // MARK: - Emoji marker
+
+    /// An emoji marker. Tap selects it (markers layer); when drag is unlocked,
+    /// press-and-hold then drag repositions it.
+    @ViewBuilder
+    private func markerAnnotation(_ mapMarker: MapMarker, proxy: MapProxy) -> some View {
+        let view = MarkerView(
+            emoji: mapMarker.emoji,
+            name: mapMarker.name,
+            showLabel: mapMarker.showLabel,
+            isSelected: isEditing && isMarkersLayer && mission.selectedMarkerID == mapMarker.id
+        )
+        .onTapGesture {
+            if isEditing && !isMoving && isMarkersLayer { mission.selectMarker(mapMarker.id) }
+        }
+
+        if isEditing && !isMoving && isMarkersLayer && mission.isDragUnlocked {
+            view.gesture(
+                LongPressGesture(minimumDuration: 0.25)
+                    .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .global))
+                    .onChanged { value in
+                        if case .second(true, let drag?) = value {
+                            mission.selectMarker(mapMarker.id)
+                            if let coordinate = proxy.convert(drag.location, from: .global) {
+                                mission.moveMarker(id: mapMarker.id, to: coordinate)
+                            }
+                        }
+                    }
+            )
+        } else {
+            view
         }
     }
 
@@ -566,12 +724,16 @@ struct MissionMapView: View {
             Text(bannerText)
                 .font(.system(.headline, design: .rounded).bold())
                 .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
         .background(.ultraThinMaterial, in: Capsule())
         .overlay(Capsule().stroke(.white.opacity(0.12), lineWidth: 1))
         .shadow(color: .black.opacity(0.4), radius: 6, y: 2)
+        // Keep clear of the top-right map controls / island on all devices.
+        .frame(maxWidth: 240)
         .padding(.top, 4)
     }
 
@@ -579,25 +741,21 @@ struct MissionMapView: View {
         if mission.isEditingAreaShape { return "hand.draw" }
         if isDrawing { return "scribble.variable" }
         if isMoving { return "arrow.up.and.down.and.arrow.left.and.right" }
-        if isEditing { return isAreasLayer ? "pentagon" : "pencil.and.outline" }
+        if isEditing {
+            if isAreasLayer { return "pentagon" }
+            if isMarkersLayer { return "mappin" }
+            return "pencil.and.outline"
+        }
         return "scope"
     }
 
     private var bannerText: String {
-        if mission.isEditingAreaShape {
-            let index = mission.selectedArea.flatMap { mission.indexOfArea($0.id) } ?? 0
-            return "EDITING SHAPE — TLS \(index)"
-        }
-        if isDrawing {
-            return "DRAWING AREA — \(mission.draftVertices.count) PT"
-        }
-        if isMoving {
-            let index = mission.movingWaypoint.flatMap { mission.index(of: $0.id) } ?? 0
-            return "MOVING WP \(index) — PAN & DROP"
-        }
+        if mission.isEditingAreaShape { return "EDITING SHAPE" }
+        if isDrawing { return "DRAWING — \(mission.draftVertices.count) PT" }
+        if isMoving { return "MOVING — PAN & DROP" }
         if isEditing {
-            if isAreasLayer { return "EDIT MODE — AREAS" }
-            return mission.isDragUnlocked ? "EDIT MODE — DRAG UNLOCKED" : "EDIT MODE — PAN TO POSITION"
+            if mission.isDragUnlocked && isWaypointsLayer { return "DRAG UNLOCKED" }
+            return "EDIT MODE"
         }
         let index = mission.currentActiveWaypointIndex
         let name = mission.activeWaypoint?.displayName(index: index) ?? "No Target"
@@ -609,5 +767,6 @@ struct MissionMapView: View {
     MissionMapView()
         .environment(MissionManager())
         .environment(LocationManager())
+        .environment(AppSettings())
         .preferredColorScheme(.dark)
 }

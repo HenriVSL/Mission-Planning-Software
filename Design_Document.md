@@ -188,6 +188,33 @@ File layout (under `Mission Planning Software/`):
 
 * Per-area line width; richer KML import (read `<Style>` colour when our `<ExtendedData>` is absent, e.g. third-party files); tap-empty-map to add a vertex while drawing.
 
+---
+
+## 8. Display / field features
+
+* **`AppSettings`** (`@Observable`, injected in the App): `mapStyle: MapStyleOption {standard, hybrid, satellite}` and `keepAwake: Bool`.
+* **Map type:** switched from the navigation menu's **Display** section and from an **Edit-mode control island** (top-right). `MissionMapView.mapStyle` maps the option to `.standard` / `.hybrid(elevation:)` / `.imagery(elevation:)`.
+* **Control island:** in Edit Mode (top-trailing, `!isMoving`), a small material "island" groups the **map-type** menu and (waypoints layer only) the **drag lock** toggle as equal-size 40pt icons. No floating button in Navigation Mode.
+* **Keep screen awake:** Toggle in the menu's Display section; applied via `UIApplication.shared.isIdleTimerDisabled` (onAppear + onChange).
+* **Menu detent:** the navigation menu opens at `.fraction(0.7)` first (was `.medium`), so the actions/footer show without dragging to full.
+* **Startup mission:** the hardcoded "Orivesi Recon" mock is removed. `MissionManager` starts empty and `loadLastMissionIfAvailable()` (called from `onAppear`) loads the last-used mission — tracked by file *name* in `UserDefaults` (`lastMissionFileName`, since the sandbox path can change between launches), persisted on every `load`/`markSaved` — falling back to the newest saved mission, else staying empty.
+
+KMZ (old 3D) deprioritized — not needed for now.
+
+---
+
+## 9. Markers (emoji icons)
+
+**Concept:** free-form emoji icons placed on the map (e.g. 🚑 here), separate from navigation waypoints — a third edit layer (**Waypoints / Areas / Markers**).
+
+* **`MapMarker`** (`nonisolated`): id, `emoji` (single grapheme), `name?`, coordinate, `showLabel`. `Mission.markers` + `MissionManager.markers`, threaded through `currentMission`/`load`/`newMission`.
+* **Storage:** KML `<Point>` placemarks in a `Markers` folder, tagged `featureType=marker` with `emoji` + `showLabel` in `<ExtendedData>`. The decoder discriminates points by `featureType` (`marker` → `MapMarker`, else `Waypoint`). Emoji are UTF-8, so they round-trip cleanly (verified offline). Other tools show a plain pin (KML icons must be image files, not glyphs) — acceptable per the interop stance.
+* **Input:** free emoji via `EmojiField` (a `TextField` that keeps the last grapheme; uses the system emoji keyboard). No curated palette — any emoji.
+* **Rendering (`MarkerView`):** emoji on a translucent rounded chip (legible on satellite), fixed screen-size (annotations don't scale with zoom, so they never grow when zooming out), optional name label below (per-marker `showLabel` toggle). **Hidden past a camera-distance threshold** (`markerVisibilityMaxDistance = 150 km`) to declutter when zoomed far out — except while editing the markers layer.
+* **Editing:** markers layer → `MarkerEditBar` (Done / List / current-emoji field / **Drop** at crosshair). Tap a marker to select → `SelectedMarkerBar` (move, change emoji, label toggle, delete, deselect). `MarkerListView` edits emoji / name / lat-lon / label, locate, swipe-delete.
+* **Moving (both methods, mirroring waypoints):** reticle **move** button on `SelectedMarkerBar` (`beginMovingMarkerOnMap` → `MoveModeBar`; `movingMarkerID`, `confirm`/`cancel`), and lock-gated **press-and-hold drag** (`markerAnnotation`; the lock toggle now shows on the markers layer too). `isMovingOnMap` and `cancelAnyMoveOnMap` cover both feature types; `onMapCameraChange` / `confirmMove` handle whichever is active.
+* **Top-overlay layout fix:** banner text shortened (`EDIT MODE`, `MOVING — PAN & DROP`, etc. — the picker already shows the layer) and the banner + layer picker capped at `maxWidth 240` with `lineLimit(1).minimumScaleFactor`, so they no longer slide under the top-right compass / control island.
+
 Build notes:
 * Project uses a **synchronized root group** — new Swift files dropped into the folder are auto-added to the target (no `.pbxproj` edits needed for sources).
 * Location-usage string added via build setting `INFOPLIST_KEY_NSLocationWhenInUseUsageDescription` (Info.plist is generated).

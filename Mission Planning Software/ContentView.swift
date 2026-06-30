@@ -17,5 +17,6 @@ struct ContentView: View {
     ContentView()
         .environment(MissionManager())
         .environment(LocationManager())
+        .environment(AppSettings())
         .preferredColorScheme(.dark)
 }
