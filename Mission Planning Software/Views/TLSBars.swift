@@ -10,12 +10,13 @@ import SwiftUI
 
 /// Horizontal row of preset colour swatches; highlights the active one.
 struct ColorSwatchRow: View {
+    var colors: [String] = TLSPalette.colors
     let selectedHex: String
     let onSelect: (String) -> Void
 
     var body: some View {
         HStack(spacing: 10) {
-            ForEach(TLSPalette.colors, id: \.self) { hex in
+            ForEach(colors, id: \.self) { hex in
                 Button { onSelect(hex) } label: {
                     Circle()
                         .fill(Color(hex: hex))

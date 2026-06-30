@@ -74,6 +74,16 @@ struct MarkerListView: View {
                 }
             }
 
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Background")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                ColorSwatchRow(colors: MarkerPalette.backgrounds,
+                               selectedHex: marker.wrappedValue.backgroundHex) { hex in
+                    marker.wrappedValue.backgroundHex = hex
+                }
+            }
+
             Toggle("Show label on map", isOn: marker.showLabel)
                 .font(.subheadline)
 

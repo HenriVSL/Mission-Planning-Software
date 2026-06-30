@@ -18,22 +18,41 @@ nonisolated struct MapMarker: Identifiable {
     var coordinate: CLLocationCoordinate2D
     /// Show the name label under the emoji.
     var showLabel: Bool
+    /// RGB hex of the chip background behind the emoji.
+    var backgroundHex: String
 
     init(
         id: UUID = UUID(),
         emoji: String = "📍",
         name: String? = nil,
         coordinate: CLLocationCoordinate2D,
-        showLabel: Bool = false
+        showLabel: Bool = false,
+        backgroundHex: String = MarkerPalette.defaultBackground
     ) {
         self.id = id
         self.emoji = emoji.isEmpty ? "📍" : emoji
         self.name = name
         self.coordinate = coordinate
         self.showLabel = showLabel
+        self.backgroundHex = backgroundHex
     }
 
     func displayName(index: Int) -> String {
         name ?? "Marker \(index)"
     }
+}
+
+/// Preset background colors for marker chips (black default + tactical colors).
+nonisolated enum MarkerPalette {
+    static let defaultBackground = "000000"
+    static let backgrounds: [String] = [
+        "000000", // black
+        "FFFFFF", // white
+        "FF3B30", // red
+        "FF9500", // orange
+        "FFCC00", // yellow
+        "34C759", // green
+        "0A84FF", // blue
+        "AF52DE", // purple
+    ]
 }

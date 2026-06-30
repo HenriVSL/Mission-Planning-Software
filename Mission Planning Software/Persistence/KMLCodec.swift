@@ -73,6 +73,7 @@ nonisolated enum KMLCodec {
         <Data name="featureType"><value>marker</value></Data>
         <Data name="emoji"><value>\(escape(marker.emoji))</value></Data>
         <Data name="showLabel"><value>\(marker.showLabel ? 1 : 0)</value></Data>
+        <Data name="background"><value>\(marker.backgroundHex)</value></Data>
         </ExtendedData>
         <Point><coordinates>\(coord(marker.coordinate))</coordinates></Point>
         </Placemark>
@@ -160,6 +161,7 @@ private nonisolated final class KMLParserDelegate: NSObject, XMLParserDelegate {
     private var placemarkShowLabel: Bool?
     private var placemarkFeatureType: String?
     private var placemarkEmoji: String?
+    private var placemarkBackground: String?
 
     private var currentDataName: String?
     private var buffer = ""
@@ -191,6 +193,7 @@ private nonisolated final class KMLParserDelegate: NSObject, XMLParserDelegate {
             placemarkShowLabel = nil
             placemarkFeatureType = nil
             placemarkEmoji = nil
+            placemarkBackground = nil
         case "Point":
             geometry = .point
         case "Polygon":
@@ -228,6 +231,7 @@ private nonisolated final class KMLParserDelegate: NSObject, XMLParserDelegate {
             case "showLabel": placemarkShowLabel = (text == "1" || text.lowercased() == "true")
             case "featureType": if !text.isEmpty { placemarkFeatureType = text }
             case "emoji": if !text.isEmpty { placemarkEmoji = text }
+            case "background": if !text.isEmpty { placemarkBackground = text }
             default: break
             }
         case "Data":
@@ -266,7 +270,8 @@ private nonisolated final class KMLParserDelegate: NSObject, XMLParserDelegate {
                     emoji: placemarkEmoji ?? "📍",
                     name: name,
                     coordinate: coordinate,
-                    showLabel: placemarkShowLabel ?? false
+                    showLabel: placemarkShowLabel ?? false,
+                    backgroundHex: placemarkBackground ?? MarkerPalette.defaultBackground
                 ))
             } else {
                 waypoints.append(Waypoint(

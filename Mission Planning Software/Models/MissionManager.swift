@@ -49,6 +49,8 @@ final class MissionManager {
     var selectedMarkerID: MapMarker.ID?
     /// Emoji used for the next dropped marker.
     var currentEmoji: String = "📍"
+    /// Background colour used for the next dropped marker.
+    var currentBackground: String = MarkerPalette.defaultBackground
     /// Marker currently being repositioned via the center reticle.
     var movingMarkerID: MapMarker.ID?
     @ObservationIgnored private var movingMarkerOriginalCoordinate: CLLocationCoordinate2D?
@@ -474,7 +476,7 @@ final class MissionManager {
     /// Drop a new marker (using `currentEmoji`) at the given coordinate; selects it.
     @discardableResult
     func addMarker(at coordinate: CLLocationCoordinate2D) -> MapMarker {
-        let marker = MapMarker(emoji: currentEmoji, coordinate: coordinate)
+        let marker = MapMarker(emoji: currentEmoji, coordinate: coordinate, backgroundHex: currentBackground)
         markers.append(marker)
         selectedMarkerID = marker.id
         return marker
@@ -488,6 +490,11 @@ final class MissionManager {
     func toggleMarkerShowLabel(id: MapMarker.ID) {
         guard let index = markers.firstIndex(where: { $0.id == id }) else { return }
         markers[index].showLabel.toggle()
+    }
+
+    func setMarkerBackground(id: MapMarker.ID, hex: String) {
+        guard let index = markers.firstIndex(where: { $0.id == id }), !hex.isEmpty else { return }
+        markers[index].backgroundHex = hex
     }
 
     func deleteMarker(id: MapMarker.ID) {

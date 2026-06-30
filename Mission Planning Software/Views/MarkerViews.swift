@@ -34,13 +34,14 @@ struct MarkerView: View {
     let name: String?
     let showLabel: Bool
     let isSelected: Bool
+    var backgroundHex: String = MarkerPalette.defaultBackground
 
     var body: some View {
         VStack(spacing: 2) {
             Text(emoji)
                 .font(.system(size: 22))
                 .frame(width: 38, height: 38)
-                .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .background(Color(hex: backgroundHex).opacity(0.65), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .stroke(isSelected ? .yellow : .white.opacity(0.4),
@@ -70,11 +71,16 @@ struct MarkerEditBar: View {
     var body: some View {
         @Bindable var mission = mission
 
-        HStack(spacing: 10) {
-            barButton("Done", "checkmark", tint: .white) { mission.exitEditMode() }
-            barButton("List", "list.bullet", tint: .white, action: onOpenList)
-            EmojiField(emoji: $mission.currentEmoji)
-            barButton("Drop", "mappin.and.ellipse", tint: .green, prominent: true, action: onDrop)
+        VStack(spacing: 8) {
+            HStack(spacing: 10) {
+                barButton("Done", "checkmark", tint: .white) { mission.exitEditMode() }
+                barButton("List", "list.bullet", tint: .white, action: onOpenList)
+                EmojiField(emoji: $mission.currentEmoji)
+                barButton("Drop", "mappin.and.ellipse", tint: .green, prominent: true, action: onDrop)
+            }
+            ColorSwatchRow(colors: MarkerPalette.backgrounds, selectedHex: mission.currentBackground) {
+                mission.currentBackground = $0
+            }
         }
         .barChrome()
     }
@@ -88,26 +94,32 @@ struct SelectedMarkerBar: View {
     let onMove: () -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
-            EmojiField(emoji: Binding(
-                get: { marker.emoji },
-                set: { mission.setMarkerEmoji(id: marker.id, emoji: $0) }
-            ))
+        VStack(spacing: 8) {
+            HStack(spacing: 8) {
+                EmojiField(emoji: Binding(
+                    get: { marker.emoji },
+                    set: { mission.setMarkerEmoji(id: marker.id, emoji: $0) }
+                ))
 
-            Text(marker.displayName(index: index))
-                .font(.system(.subheadline, design: .rounded).bold())
-                .foregroundStyle(.white)
-                .lineLimit(1)
+                Text(marker.displayName(index: index))
+                    .font(.system(.subheadline, design: .rounded).bold())
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
 
-            Spacer(minLength: 4)
+                Spacer(minLength: 4)
 
-            iconButton("arrow.up.and.down.and.arrow.left.and.right", color: .green, action: onMove)
-            iconButton(marker.showLabel ? "tag.fill" : "tag",
-                       color: marker.showLabel ? .green : .white) {
-                mission.toggleMarkerShowLabel(id: marker.id)
+                iconButton("arrow.up.and.down.and.arrow.left.and.right", color: .green, action: onMove)
+                iconButton(marker.showLabel ? "tag.fill" : "tag",
+                           color: marker.showLabel ? .green : .white) {
+                    mission.toggleMarkerShowLabel(id: marker.id)
+                }
+                iconButton("trash", color: .red) { mission.deleteSelectedMarker() }
+                iconButton("xmark", color: .white.opacity(0.7)) { mission.deselectMarker() }
             }
-            iconButton("trash", color: .red) { mission.deleteSelectedMarker() }
-            iconButton("xmark", color: .white.opacity(0.7)) { mission.deselectMarker() }
+
+            ColorSwatchRow(colors: MarkerPalette.backgrounds, selectedHex: marker.backgroundHex) {
+                mission.setMarkerBackground(id: marker.id, hex: $0)
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)

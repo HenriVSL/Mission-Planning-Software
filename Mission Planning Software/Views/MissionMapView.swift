@@ -43,8 +43,24 @@ struct MissionMapView: View {
     /// Current camera distance (meters); markers hide past a threshold.
     @State private var mapDistance: CLLocationDistance = 0
 
+    /// Briefly true after a quick-save (control-island checkmark feedback).
+    @State private var justSaved = false
+
     /// Markers are hidden when zoomed out past this camera distance (declutter).
     private let markerVisibilityMaxDistance: CLLocationDistance = 150_000
+
+    // Marker zoom-scaling: emoji grow/shrink with the map (like houses), so they
+    // track ground features. Scale == 1 at the reference distance; clamped so
+    // they don't get too big zoomed in or vanish before the hide threshold.
+    private let markerReferenceDistance: CLLocationDistance = 3_000  // scale 1.0 here
+    private let markerMinScale: CGFloat = 0.45
+    private let markerMaxScale: CGFloat = 0.9
+
+    private var markerScale: CGFloat {
+        guard mapDistance > 0 else { return 1 }
+        let raw = CGFloat(markerReferenceDistance / mapDistance)
+        return min(max(raw, markerMinScale), markerMaxScale)
+    }
 
     /// True bearing from the user to the active (next) waypoint, in degrees from
     /// north. Always anchored at the user's position regardless of which route
@@ -109,14 +125,20 @@ struct MissionMapView: View {
                 }
             }
             // Edit Mode reticle, pinned to the screen center (waypoint drop or
-            // area vertex placement).
+            // area vertex placement). It ignores the keyboard so it stays aligned
+            // with the map center (the drop point) when the emoji keyboard is up.
             .overlay {
-                if showsCrosshair { CrosshairView() }
+                if showsCrosshair {
+                    CrosshairView()
+                        .ignoresSafeArea(.keyboard, edges: .bottom)
+                }
             }
             .overlay(alignment: .topTrailing) { controlIsland }
             .overlay(alignment: .top) { topControls }
             .overlay(alignment: .bottom) { bottomBar }
-            .ignoresSafeArea(edges: .bottom)
+            // Ignore the home-indicator inset (full-bleed map) but NOT the
+            // keyboard, so the bottom bar rises above the emoji keyboard.
+            .ignoresSafeArea(.container, edges: .bottom)
             .onAppear {
                 mission.loadLastMissionIfAvailable()
                 location.start()
@@ -202,6 +224,8 @@ struct MissionMapView: View {
         if isEditing && !isMoving {
             VStack(spacing: 4) {
                 mapStyleMenu
+                Divider().frame(width: 26).overlay(.white.opacity(0.2))
+                saveButton
                 if isWaypointsLayer || isMarkersLayer {
                     Divider().frame(width: 26).overlay(.white.opacity(0.2))
                     lockToggle
@@ -212,7 +236,7 @@ struct MissionMapView: View {
             .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(.white.opacity(0.15), lineWidth: 1))
             .shadow(color: .black.opacity(0.35), radius: 5, y: 2)
             .padding(.trailing, 12)
-            .padding(.top, 60)
+            .padding(.top, 70)
         }
     }
 
@@ -242,6 +266,32 @@ struct MissionMapView: View {
                 .font(.headline)
                 .foregroundStyle(mission.isDragUnlocked ? .green : .white)
                 .frame(width: 40, height: 40)
+        }
+    }
+
+    /// Quick-save: overwrite the current mission's file (or create it under the
+    /// current name if it has never been saved). Briefly shows a checkmark.
+    private var saveButton: some View {
+        Button {
+            saveCurrentMission()
+            withAnimation { justSaved = true }
+            Task {
+                try? await Task.sleep(for: .seconds(1.2))
+                withAnimation { justSaved = false }
+            }
+        } label: {
+            Image(systemName: justSaved ? "checkmark" : "square.and.arrow.down")
+                .font(.headline)
+                .foregroundStyle(justSaved ? .green : .white)
+                .frame(width: 40, height: 40)
+        }
+    }
+
+    private func saveCurrentMission() {
+        let name = mission.currentFileURL?.deletingPathExtension().lastPathComponent
+            ?? MissionStore.sanitize(mission.missionName)
+        if let url = try? MissionStore.save(mission.currentMission, fileName: name) {
+            mission.markSaved(as: name, url: url)
         }
     }
 
@@ -587,8 +637,10 @@ struct MissionMapView: View {
             emoji: mapMarker.emoji,
             name: mapMarker.name,
             showLabel: mapMarker.showLabel,
-            isSelected: isEditing && isMarkersLayer && mission.selectedMarkerID == mapMarker.id
+            isSelected: isEditing && isMarkersLayer && mission.selectedMarkerID == mapMarker.id,
+            backgroundHex: mapMarker.backgroundHex
         )
+        .scaleEffect(markerScale)
         .onTapGesture {
             if isEditing && !isMoving && isMarkersLayer { mission.selectMarker(mapMarker.id) }
         }
