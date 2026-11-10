@@ -16,7 +16,7 @@ import UIKit
 /// update the drop point on every pan tick without invalidating the SwiftUI
 /// view (a struct `@State` would re-render the whole map content each tick).
 private final class CenterBox {
-    var value = CLLocationCoordinate2D(latitude: 61.677, longitude: 24.356)
+    var value = CLLocationCoordinate2D(latitude: 60.1699, longitude: 24.9384)
 }
 
 struct MissionMapView: View {

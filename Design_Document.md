@@ -37,7 +37,7 @@ To ensure stability and manage context effectively, development is strictly divi
 ### Phase 1: Map Engine & Execution HUD (Foundation)
 **Goal:** Establish tracking, telemetry, and the baseline UI using hardcoded mock data.
 
-* **Mock Initialization:** Initialize the `MissionManager` with 4-5 hardcoded waypoints located near Orivesi, Pirkanmaa (approx. coordinates 61.677, 24.356) to allow for immediate field testing of the map routing and GPS tracking.
+* **Mock Initialization:** Initialize the `MissionManager` with 4-5 hardcoded waypoints located near Helsinki (approx. coordinates 60.1699, 24.9384) to allow for immediate field testing of the map routing and GPS tracking.
 * **Camera & Tracking:** The MapKit view must continuously track and center on the user's current GPS location.
 * **Route Rendering (MapPolylines):**
     * *Baseline Route:* A continuous white, dashed line connecting all waypoints (0 to N).
@@ -87,7 +87,7 @@ To ensure stability and manage context effectively, development is strictly divi
 File layout (under `Mission Planning Software/`):
 
 * `Models/Waypoint.swift` — `Waypoint` struct (id, name, coordinate, activationRadius).
-* `Models/MissionManager.swift` — `@Observable` global state + 5 hardcoded Orivesi mock waypoints, `activeWaypoint`, `advance()`/`retreat()` with `canAdvance`/`canRetreat` bounds.
+* `Models/MissionManager.swift` — `@Observable` global state + 5 hardcoded Helsinki mock waypoints, `activeWaypoint`, `advance()`/`retreat()` with `canAdvance`/`canRetreat` bounds.
 * `Location/LocationManager.swift` — `@Observable` `CLLocationManagerDelegate`; delegate callbacks are `nonisolated` + `MainActor.assumeIsolated` (project defaults to `MainActor` actor isolation). Exposes `userLocation`, `currentLocation`, `groundSpeed`, `authorizationStatus`.
 * `Utilities/GeoMath.swift` — `CLLocationCoordinate2D.bearing(to:)` (forward azimuth) and `.distance(to:)`, plus `Telemetry` distance/ETA string formatters.
 * `Views/MissionMapView.swift` — full-screen `Map`, camera `.userLocation(fallback: .automatic)`, per-leg route rendering, waypoint markers, targeting arrow, top banner.
@@ -198,7 +198,7 @@ File layout (under `Mission Planning Software/`):
 * **Crosshair vs keyboard:** the reticle uses `.ignoresSafeArea(.keyboard)` so it stays at the map's true centre (the drop point) when the emoji keyboard pushes other content up — otherwise drops landed at screen-centre instead of the reticle.
 * **Keep screen awake:** Toggle in the menu's Display section; applied via `UIApplication.shared.isIdleTimerDisabled` (onAppear + onChange).
 * **Menu detent:** the navigation menu opens at `.fraction(0.7)` first (was `.medium`), so the actions/footer show without dragging to full.
-* **Startup mission:** the hardcoded "Orivesi Recon" mock is removed. `MissionManager` starts empty and `loadLastMissionIfAvailable()` (called from `onAppear`) loads the last-used mission — tracked by file *name* in `UserDefaults` (`lastMissionFileName`, since the sandbox path can change between launches), persisted on every `load`/`markSaved` — falling back to the newest saved mission, else staying empty.
+* **Startup mission:** the hardcoded "Helsinki Recon" mock is removed. `MissionManager` starts empty and `loadLastMissionIfAvailable()` (called from `onAppear`) loads the last-used mission — tracked by file *name* in `UserDefaults` (`lastMissionFileName`, since the sandbox path can change between launches), persisted on every `load`/`markSaved` — falling back to the newest saved mission, else staying empty.
 
 KMZ (old 3D) deprioritized — not needed for now.
 
