@@ -8,7 +8,16 @@
 
 import MapKit
 import SwiftUI
+#if os(iOS)
 import UIKit
+#endif
+
+/// Reference box for the screen-center coordinate. Lets `onMapCameraChange`
+/// update the drop point on every pan tick without invalidating the SwiftUI
+/// view (a struct `@State` would re-render the whole map content each tick).
+private final class CenterBox {
+    var value = CLLocationCoordinate2D(latitude: 61.677, longitude: 24.356)
+}
 
 struct MissionMapView: View {
     @Environment(MissionManager.self) private var mission
@@ -19,9 +28,11 @@ struct MissionMapView: View {
     /// until the first GPS fix arrives.
     @State private var camera: MapCameraPosition = .userLocation(fallback: .automatic)
 
-    /// Geographic coordinate currently under the screen center — the drop point
-    /// for new waypoints in Edit Mode. Kept in sync via `onMapCameraChange`.
-    @State private var mapCenter = CLLocationCoordinate2D(latitude: 61.677, longitude: 24.356)
+    /// Screen-center coordinate (the drop point). Held in a reference box so the
+    /// continuous camera updates during panning DON'T invalidate the view — it's
+    /// only read imperatively when dropping/moving, never rendered.
+    @State private var centerBox = CenterBox()
+    private var mapCenter: CLLocationCoordinate2D { centerBox.value }
 
     /// Current map rotation (compass direction that is "up" on screen), in
     /// degrees clockwise from north. Non-zero in heading-up / rotated views;
@@ -113,17 +124,24 @@ struct MissionMapView: View {
                 MapScaleView()
             }
             .onMapCameraChange(frequency: .continuous) { context in
-                mapCenter = context.region.center
-                mapHeading = context.camera.heading
-                mapDistance = context.camera.distance
+                let center = context.region.center
+                // Non-invalidating: panning updates this without a re-render.
+                centerBox.value = center
+
+                // Only touch @State (which re-renders) when heading/distance
+                // actually change — they don't during a plain pan.
+                let heading = context.camera.heading
+                if abs(heading - mapHeading) >= 0.5 { mapHeading = heading }
+                let distance = context.camera.distance
+                if abs(distance - mapDistance) >= max(1, mapDistance * 0.02) { mapDistance = distance }
+
                 // While moving via the reticle, keep the feature pinned to center.
-                if let id = mission.movingWaypointID {
-                    mission.moveWaypoint(id: id, to: context.region.center)
-                }
-                if let id = mission.movingMarkerID {
-                    mission.moveMarker(id: id, to: context.region.center)
-                }
+                if let id = mission.movingWaypointID { mission.moveWaypoint(id: id, to: center) }
+                if let id = mission.movingMarkerID { mission.moveMarker(id: id, to: center) }
             }
+            // Force the map's appearance (MapKit follows the system otherwise).
+            // Applied before the overlays so only the map tiles are affected.
+            .environment(\.colorScheme, settings.mapDark ? .dark : .light)
             // Edit Mode reticle, pinned to the screen center (waypoint drop or
             // area vertex placement). It ignores the keyboard so it stays aligned
             // with the map center (the drop point) when the emoji keyboard is up.
@@ -142,10 +160,10 @@ struct MissionMapView: View {
             .onAppear {
                 mission.loadLastMissionIfAvailable()
                 location.start()
-                UIApplication.shared.isIdleTimerDisabled = settings.keepAwake
+                applyKeepAwake(settings.keepAwake)
             }
             .onChange(of: settings.keepAwake) { _, keepAwake in
-                UIApplication.shared.isIdleTimerDisabled = keepAwake
+                applyKeepAwake(keepAwake)
             }
             .onChange(of: location.updateCount) { _, _ in
                 if let user = location.userLocation {
@@ -209,13 +227,22 @@ struct MissionMapView: View {
         .padding(.top, 4)
     }
 
-    /// The active base map style.
+    /// The active base map style. macOS uses flat (2D) elevation — a cleaner fit
+    /// for desktop top-down mission editing (and avoids 3D-terrain GPU quirks).
     private var mapStyle: MapStyle {
         switch settings.mapStyle {
-        case .standard: return .standard(elevation: .realistic, pointsOfInterest: .excludingAll)
-        case .hybrid: return .hybrid(elevation: .realistic, pointsOfInterest: .excludingAll)
-        case .satellite: return .imagery(elevation: .realistic)
+        case .standard: return .standard(elevation: mapElevation, pointsOfInterest: .excludingAll)
+        case .hybrid: return .hybrid(elevation: mapElevation, pointsOfInterest: .excludingAll)
+        case .satellite: return .imagery(elevation: mapElevation)
         }
+    }
+
+    private var mapElevation: MapStyle.Elevation {
+        #if os(macOS)
+        .flat
+        #else
+        .realistic
+        #endif
     }
 
     /// Edit-mode control island (top-right): map type + drag lock together.
@@ -232,7 +259,7 @@ struct MissionMapView: View {
                 }
             }
             .padding(5)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .background(.panel, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(.white.opacity(0.15), lineWidth: 1))
             .shadow(color: .black.opacity(0.35), radius: 5, y: 2)
             .padding(.trailing, 12)
@@ -256,6 +283,11 @@ struct MissionMapView: View {
                 .foregroundStyle(.white)
                 .frame(width: 40, height: 40)
         }
+        // On macOS a Menu otherwise renders as a full-width pop-up button.
+        .menuIndicator(.hidden)
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .fixedSize()
     }
 
     private var lockToggle: some View {
@@ -293,6 +325,13 @@ struct MissionMapView: View {
         if let url = try? MissionStore.save(mission.currentMission, fileName: name) {
             mission.markSaved(as: name, url: url)
         }
+    }
+
+    /// Keep the screen awake (iOS only; a no-op on macOS for now).
+    private func applyKeepAwake(_ keepAwake: Bool) {
+        #if os(iOS)
+        UIApplication.shared.isIdleTimerDisabled = keepAwake
+        #endif
     }
 
     /// Navigation Mode shows telemetry; Edit Mode shows the authoring controls,
@@ -781,7 +820,7 @@ struct MissionMapView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
-        .background(.ultraThinMaterial, in: Capsule())
+        .background(.panel, in: Capsule())
         .overlay(Capsule().stroke(.white.opacity(0.12), lineWidth: 1))
         .shadow(color: .black.opacity(0.4), radius: 6, y: 2)
         // Keep clear of the top-right map controls / island on all devices.

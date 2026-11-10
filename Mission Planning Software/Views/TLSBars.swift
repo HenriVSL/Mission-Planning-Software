@@ -108,7 +108,7 @@ struct SelectedAreaBar: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(.panel, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(.yellow.opacity(0.4), lineWidth: 1))
         .shadow(color: .black.opacity(0.4), radius: 6, y: 2)
         .padding(.horizontal, 12)
@@ -197,7 +197,7 @@ extension View {
         self
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .background(.panel, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(.white.opacity(0.12), lineWidth: 1))
             .shadow(color: .black.opacity(0.4), radius: 8, y: 3)
             .padding(.horizontal, 12)

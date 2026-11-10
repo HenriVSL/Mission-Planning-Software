@@ -34,7 +34,7 @@ struct MissionLibraryView: View {
                     Image(systemName: "pencil")
                         .foregroundStyle(.secondary)
                     TextField("Mission name", text: $mission.missionName)
-                        .textInputAutocapitalization(.words)
+                        .wordsCapitalization()
                         .submitLabel(.done)
                 }
                 LabeledContent("Waypoints", value: "\(mission.waypoints.count)")
@@ -88,10 +88,8 @@ struct MissionLibraryView: View {
             }
         }
         .navigationTitle("Mission Library")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            if !files.isEmpty { ToolbarItem(placement: .topBarTrailing) { EditButton() } }
-        }
+        .inlineNavTitle()
+        .editButtonToolbar(visible: !files.isEmpty)
         .onAppear { refresh(); refreshExport() }
         .onChange(of: mission.missionName) { _, _ in refreshExport() }
         .fileImporter(isPresented: $showingImporter,

@@ -61,10 +61,19 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
         let status = manager.authorizationStatus
         MainActor.assumeIsolated {
             self.authorizationStatus = status
-            if status == .authorizedWhenInUse || status == .authorizedAlways {
+            if Self.isAuthorized(status) {
                 manager.startUpdatingLocation()
             }
         }
+    }
+
+    /// "When in use" exists on iOS; macOS only has "always"/"authorized".
+    nonisolated static func isAuthorized(_ status: CLAuthorizationStatus) -> Bool {
+        #if os(macOS)
+        return status == .authorizedAlways
+        #else
+        return status == .authorizedWhenInUse || status == .authorizedAlways
+        #endif
     }
 
     nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {

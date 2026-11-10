@@ -36,6 +36,9 @@ enum MapStyleOption: String, CaseIterable, Identifiable {
 @Observable
 final class AppSettings {
     var mapStyle: MapStyleOption = .standard
+    /// Render the map with a dark appearance (overrides the system appearance,
+    /// which MapKit otherwise follows). Affects Standard/Hybrid, not Satellite.
+    var mapDark: Bool = true
     /// Prevent the screen from auto-locking (useful while navigating).
     var keepAwake: Bool = false
 }

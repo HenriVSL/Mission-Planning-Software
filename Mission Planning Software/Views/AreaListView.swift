@@ -35,14 +35,13 @@ struct AreaListView: View {
                 }
             }
             .navigationTitle("Areas")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavTitle()
             .toolbar {
-                if !mission.areas.isEmpty { ToolbarItem(placement: .topBarLeading) { EditButton() } }
-                ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
+                if !mission.areas.isEmpty { PlatformEditButton() }
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
         }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
+        .editorSheet()
     }
 
     @ViewBuilder
@@ -57,7 +56,7 @@ struct AreaListView: View {
                     .frame(width: 18, height: 18)
                     .overlay(Circle().stroke(.secondary.opacity(0.4)))
                 TextField("Name", text: area.name.orEmpty())
-                    .textInputAutocapitalization(.words)
+                    .wordsCapitalization()
                 Spacer()
                 Text("#\(index)")
                     .font(.caption)

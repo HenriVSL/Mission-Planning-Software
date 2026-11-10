@@ -37,14 +37,13 @@ struct MarkerListView: View {
                 }
             }
             .navigationTitle("Markers")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavTitle()
             .toolbar {
-                if !mission.markers.isEmpty { ToolbarItem(placement: .topBarLeading) { EditButton() } }
-                ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
+                if !mission.markers.isEmpty { PlatformEditButton() }
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
         }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
+        .editorSheet()
     }
 
     @ViewBuilder
@@ -56,7 +55,7 @@ struct MarkerListView: View {
                 EmojiField(emoji: marker.emoji)
                     .fixedSize()
                 TextField("Name", text: marker.name.orEmpty())
-                    .textInputAutocapitalization(.words)
+                    .wordsCapitalization()
                 Spacer()
                 Text("#\(index)")
                     .font(.caption)
@@ -66,11 +65,11 @@ struct MarkerListView: View {
             HStack(spacing: 12) {
                 LabeledField("Latitude") {
                     TextField("Latitude", value: marker.coordinate.latitude, format: .number.precision(.fractionLength(0...6)))
-                        .keyboardType(.numbersAndPunctuation)
+                        .numericKeyboard()
                 }
                 LabeledField("Longitude") {
                     TextField("Longitude", value: marker.coordinate.longitude, format: .number.precision(.fractionLength(0...6)))
-                        .keyboardType(.numbersAndPunctuation)
+                        .numericKeyboard()
                 }
             }
 

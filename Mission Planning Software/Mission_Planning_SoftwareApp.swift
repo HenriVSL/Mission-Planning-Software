@@ -20,6 +20,12 @@ struct Mission_Planning_SoftwareApp: App {
                 .environment(locationManager)
                 .environment(settings)
                 .preferredColorScheme(.dark) // Default to Dark Mode for field visibility.
+                #if os(macOS)
+                .frame(minWidth: 700, minHeight: 500)
+                #endif
         }
+        #if os(macOS)
+        .defaultSize(width: 1000, height: 720)
+        #endif
     }
 }

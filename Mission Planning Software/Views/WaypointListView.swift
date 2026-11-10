@@ -52,16 +52,15 @@ struct WaypointListView: View {
                 }
             }
             .navigationTitle("Waypoints")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavTitle()
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { EditButton() }
-                ToolbarItem(placement: .topBarTrailing) {
+                PlatformEditButton()
+                ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                 }
             }
         }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
+        .editorSheet()
     }
 
     @ViewBuilder
@@ -74,21 +73,21 @@ struct WaypointListView: View {
             VStack(alignment: .leading, spacing: 12) {
                 LabeledField("Name") {
                     TextField("Name", text: waypoint.name.orEmpty())
-                        .textInputAutocapitalization(.words)
+                        .wordsCapitalization()
                 }
                 HStack(spacing: 12) {
                     LabeledField("Latitude") {
                         TextField("Latitude", value: waypoint.coordinate.latitude, format: .number.precision(.fractionLength(0...6)))
-                            .keyboardType(.numbersAndPunctuation)
+                            .numericKeyboard()
                     }
                     LabeledField("Longitude") {
                         TextField("Longitude", value: waypoint.coordinate.longitude, format: .number.precision(.fractionLength(0...6)))
-                            .keyboardType(.numbersAndPunctuation)
+                            .numericKeyboard()
                     }
                 }
                 LabeledField("Activation radius (m)") {
                     TextField("Radius", value: waypoint.activationRadius, format: .number.precision(.fractionLength(0...1)))
-                        .keyboardType(.numbersAndPunctuation)
+                        .numericKeyboard()
                 }
 
                 HStack(spacing: 10) {

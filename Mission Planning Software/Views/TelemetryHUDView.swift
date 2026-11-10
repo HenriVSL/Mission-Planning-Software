@@ -60,7 +60,7 @@ struct TelemetryHUDView: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
-        .background(.ultraThinMaterial, in: Capsule())
+        .background(.panel, in: Capsule())
         .overlay(Capsule().stroke(.white.opacity(0.12), lineWidth: 1))
         .shadow(color: .black.opacity(0.4), radius: 8, y: 3)
         .padding(.bottom, 8)

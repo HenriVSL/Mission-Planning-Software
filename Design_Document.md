@@ -204,6 +204,23 @@ KMZ (old 3D) deprioritized — not needed for now.
 
 ---
 
+## 10. macOS support (Tier 2 — native, shared code)
+
+Goal: edit mission files on a Mac (incl. Intel, so native macOS — not "Designed for iPad"). Both iOS and macOS build clean from one target.
+
+* **Project:** the app target gained `SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx"`, `SDKROOT = auto`, `MACOSX_DEPLOYMENT_TARGET = 14.0`, `SUPPORTS_MACCATALYST = NO` (native AppKit-backed, not Catalyst). iOS deployment stays 26.0. **Unsandboxed** (no macOS entitlements added) so the file importer, `~/Documents` library, and location (with the usage-description Info.plist key) work without extra setup.
+* **`Utilities/View+Platform.swift`:** cross-platform wrappers keep view code clean — `inlineNavTitle()`, `numericKeyboard()`, `wordsCapitalization()`, `editorSheet()`/`menuSheet()` (detents on iOS, window sizing on macOS), `PlatformEditButton` / `editButtonToolbar` (iOS `EditButton`, no-op on macOS). Toolbar `Done` buttons moved from `.topBarTrailing` to cross-platform `.confirmationAction`.
+* **Code fixes:** `LocationManager.isAuthorized(_:)` handles `.authorizedWhenInUse` (iOS) vs `.authorizedAlways` (macOS); `import UIKit` + `isIdleTimerDisabled` (keep-awake) guarded with `#if os(iOS)` (`applyKeepAwake` is a no-op on macOS for now).
+* **Models / `KMLCodec` / `MissionStore` / GeoMath:** zero changes — already pure Foundation/CoreLocation.
+* **Window sizing:** the macOS `WindowGroup` sets `.defaultSize(1000×720)` + `.frame(minWidth:700, minHeight:500)` (removes a transient zero-size Metal drawable at launch). macOS map uses `.flat` elevation (2D, better for editing).
+* **⚠️ Metal API Validation gotcha:** running from Xcode with **Metal API Validation** enabled (the Run-scheme default) crashes inside the validation layer while it validates MapKit / SwiftUI blur-material (`.ultraThinMaterial`) rendering on macOS (`MTLDebugRenderCommandEncoder` sampleCount assert, then a `MetalTools`/`CoreImageOld` segfault). This is a MapKit/validation-layer bug, **not app code** — the app runs fine when launched normally (Release, `open`, or with validation off). **Fix for debugging:** Edit Scheme → Run → Diagnostics → uncheck **Metal API Validation**.
+* **macOS control-island width:** a `Menu` with a custom icon label renders as a full-width pop-up button on macOS (stretched the island). Fixed with `.menuIndicator(.hidden).menuStyle(.button).buttonStyle(.plain).fixedSize()` so it hugs the icon.
+* **Performance — blur materials:** `.ultraThinMaterial` (9 overlay backgrounds) is very costly over the live map on integrated GPUs. New `ShapeStyle.panel` (in `View+Platform.swift`) is the material on iOS and a cheap solid (`black 0.62`) on macOS; all overlays use `.panel`. (MapKit itself is GPU/Metal; satellite/hybrid imagery is heaviest. For real perf, test a **Release** build — Debug is `-Onone`.)
+* **Performance — per-pan re-render storm:** `onMapCameraChange(.continuous)` was writing `mapCenter`/`mapHeading`/`mapDistance` `@State` every camera tick, invalidating the whole view + rebuilding all map content dozens of times/sec while panning (CPU pegged). Fixed: `mapCenter` now lives in a plain `CenterBox` reference (read imperatively at drop/move time, never rendered → no invalidation), and `mapHeading`/`mapDistance` are only assigned when they meaningfully change (they don't during a plain pan). So a plain pan triggers **no** SwiftUI re-render; heading/distance still update on rotate/zoom, and the reticle-follow still updates while moving a feature.
+* **Not done (Tier 3, later):** mouse/keyboard-native UX (the touch flows — crosshair-drop, press-hold-drag — work but aren't Mac-idiomatic), further window-friendly layout, macOS keep-awake, and optional sandboxing/entitlements for distribution.
+
+---
+
 ## 9. Markers (emoji icons)
 
 **Concept:** free-form emoji icons placed on the map (e.g. 🚑 here), separate from navigation waypoints — a third edit layer (**Waypoints / Areas / Markers**).

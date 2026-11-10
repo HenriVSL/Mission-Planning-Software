@@ -64,19 +64,19 @@ struct MissionMenuView: View {
                             Label(option.label, systemImage: option.systemImage).tag(option)
                         }
                     }
+                    Toggle("Dark Map", isOn: $settings.mapDark)
                     Toggle("Keep Screen Awake", isOn: $settings.keepAwake)
                 }
             }
             .navigationTitle(mission.missionName)
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavTitle()
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                 }
             }
         }
-        .presentationDetents([.fraction(0.7), .large])
-        .presentationDragIndicator(.visible)
+        .menuSheet()
     }
 
     private func format(_ coordinate: CLLocationCoordinate2D) -> String {

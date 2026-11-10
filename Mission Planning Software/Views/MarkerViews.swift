@@ -123,7 +123,7 @@ struct SelectedMarkerBar: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(.panel, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(.yellow.opacity(0.4), lineWidth: 1))
         .shadow(color: .black.opacity(0.4), radius: 6, y: 2)
         .padding(.horizontal, 12)
